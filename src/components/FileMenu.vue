@@ -7,7 +7,7 @@ import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import { fixTs, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { RELOAD_GALLERY_KEY } from '@/composables/useGallery'
+import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
   COMPRESS_LABEL,
   EDIT_LABEL,
@@ -23,16 +23,19 @@ import {
   ICON_FIX,
   ICON_FOLDER_MOVE,
   ICON_RENAME,
+  ICON_SELECT,
   ICON_TRASH,
 } from '@/icons'
-import type { Entry, MenuItem } from '@/types'
+import type { Entry, MenuDetail, MenuItem } from '@/types'
 import { isCompressible, isEditable } from '@/utils/entry'
 import { minuteClock } from '@/utils/clock'
-import { formatDate, formatDateAgo, formatSize } from '@/utils/format'
+import { formatAgo, formatLongDate, formatSize } from '@/utils/format'
 
 /**
- * Menu of a video / image / file card: fix, compress, rename, move or delete
- * it. The card opens it (`open()`) on a right-click or press-and-hold.
+ * Menu of a video / image / file card: its dates, then icon buttons to fix,
+ * edit (or rename), compress, select (turns on selection mode), move or
+ * delete it (the rows are listed above the items, below). The card opens it
+ * (`open()`) on a right-click or press-and-hold.
  */
 const props = defineProps<{ entry: Entry }>()
 /** The file is gone from this folder or changed size: the listing should be reloaded */
@@ -62,109 +65,124 @@ function fixBusyLabel(): string {
   return fixPercent.value === null ? 'Fixing…' : `Fixing… ${fixPercent.value}%`
 }
 
-const items: MenuItem[] = [
-  ...(props.entry.needs_fix
-    ? [
-        {
-          label: FIX_TS_LABEL,
-          description: 'Save a playable MP4 copy next to it (lossless)',
-          icon: ICON_FIX,
-          busyLabel: fixBusyLabel,
-          // the spinner (CardMenu) runs until the copy is in the grid, then the menu closes
-          async run() {
-            fixPercent.value = null
-            fixListing.value = false
-            try {
-              await fixTs(props.entry.path, (f) => (fixPercent.value = Math.floor(f * 100)))
-              fixListing.value = true
-              await reloadGallery()
-            } finally {
-              fixListing.value = false
-            }
-            return null
-          },
-        },
-      ]
-    : []),
-  ...(isCompressible(props.entry)
-    ? [
-        {
-          label: COMPRESS_LABEL,
-          description: 'Save a smaller copy next to it, looking the same',
-          icon: ICON_COMPRESS,
-          async run() {
-            compressing.value = true
-            return null
-          },
-        },
-      ]
-    : []),
-  ...(isEditable(props.entry)
-    ? [
-        {
-          label: EDIT_LABEL,
-          description:
-            props.entry.kind === 'video'
-              ? 'Rename, set its views, trim the ends or crop the edges'
-              : 'Rename, set its views or crop the edges',
-          icon: ICON_CROP,
-          async run() {
-            editing.value = true
-            return null
-          },
-        },
-      ]
-    : []),
-  // videos and photos are renamed in the edit popup (with their views); other files here
-  ...(isEditable(props.entry)
-    ? []
-    : [
-        {
-          label: RENAME_LABEL,
-          description: 'Give it a new name',
-          icon: ICON_RENAME,
-          async run() {
-            renaming.value = true
-            return null
-          },
-        },
-      ]),
-  {
-    label: MOVE_LABEL,
-    description: 'Put it in another folder',
-    icon: ICON_FOLDER_MOVE,
-    async run() {
-      picking.value = true
-      return null
-    },
+// The menu's buttons are icons only (CardMenu's icon-only): each label is
+// its tooltip and screen-reader name. In rows:
+//  1. Fix TS (only for a .ts that needs it)
+//  2. edit (rename for files that can't be edited), compress, select
+//  3. move, trash
+
+const fixItem: MenuItem = {
+  label: FIX_TS_LABEL,
+  icon: ICON_FIX,
+  busyLabel: fixBusyLabel,
+  // the spinner (CardMenu) runs until the copy is in the grid, then the menu closes
+  async run() {
+    fixPercent.value = null
+    fixListing.value = false
+    try {
+      await fixTs(props.entry.path, (f) => (fixPercent.value = Math.floor(f * 100)))
+      fixListing.value = true
+      await reloadGallery()
+    } finally {
+      fixListing.value = false
+    }
+    return null
   },
-  {
-    label: TRASH_LABEL,
-    description: 'Restorable from your file manager',
-    icon: ICON_TRASH,
-    busyLabel: 'Moving to trash…',
-    danger: true,
-    confirm: { message: TRASH_CONFIRM.replace('{name}', props.entry.name) },
-    async run() {
-      await trashFile(props.entry.path)
-      emit('changed')
-      return null
-    },
+}
+
+/** Videos and photos are renamed in the edit popup (with their views); other files get rename instead */
+const editItem: MenuItem = isEditable(props.entry)
+  ? {
+      label: EDIT_LABEL,
+      icon: ICON_CROP,
+      row: 'tools',
+      async run() {
+        editing.value = true
+        return null
+      },
+    }
+  : {
+      label: RENAME_LABEL,
+      icon: ICON_RENAME,
+      row: 'tools',
+      async run() {
+        renaming.value = true
+        return null
+      },
+    }
+
+const compressItem: MenuItem = {
+  label: COMPRESS_LABEL,
+  icon: ICON_COMPRESS,
+  row: 'tools',
+  async run() {
+    compressing.value = true
+    return null
   },
-]
+}
+
+/**
+ * Selection mode (App.vue): closes the menu and turns it on with this file
+ * already picked, to pick more and move or delete them together. Not shown
+ * while it's already on
+ */
+const selection = inject(SELECTION_KEY, null)
+const selectItem: MenuItem = {
+  label: 'Select',
+  icon: ICON_SELECT,
+  row: 'tools',
+  async run() {
+    selection?.start(props.entry.path)
+    return null
+  },
+}
+
+const moveItem: MenuItem = {
+  label: MOVE_LABEL,
+  icon: ICON_FOLDER_MOVE,
+  row: 'move-trash',
+  async run() {
+    picking.value = true
+    return null
+  },
+}
+
+const trashItem: MenuItem = {
+  label: TRASH_LABEL,
+  icon: ICON_TRASH,
+  busyLabel: 'Moving to trash…',
+  danger: true,
+  row: 'move-trash',
+  confirm: { message: TRASH_CONFIRM.replace('{name}', props.entry.name) },
+  async run() {
+    await trashFile(props.entry.path)
+    emit('changed')
+    return null
+  },
+}
+
+const menuItems = computed<MenuItem[]>(() => [
+  ...(props.entry.needs_fix ? [fixItem] : []),
+  editItem,
+  ...(isCompressible(props.entry) ? [compressItem] : []),
+  ...(selection && !selection.active.value ? [selectItem] : []),
+  moveItem,
+  trashItem,
+])
 
 /** Its dates, at the top of the menu (they're no longer on the card) */
 const details = computed(() => {
-  const list: Array<{ label: string; value: string }> = []
-  if (props.entry.added) list.push({ label: 'Added', value: formatDate(props.entry.added) })
+  const list: MenuDetail[] = []
+  if (props.entry.added) list.push({ label: 'Added', value: formatLongDate(props.entry.added) })
   // photos and videos are "viewed": shown / played in the viewer
   // dev mode: not shown (src/appMode.ts)
   if ((props.entry.kind === 'video' || props.entry.kind === 'image') && recordsVideoData.value) {
+    const last = props.entry.last_viewed
     list.push({
       label: 'Last viewed',
-      value: props.entry.last_viewed
-        ? formatDateAgo(props.entry.last_viewed, minuteClock.value)
-        : 'Never',
+      value: last ? formatLongDate(last) : 'Never',
+      // how long ago, on its own line under the date
+      note: last ? formatAgo(last, minuteClock.value) : undefined,
     })
     // how often, on every device (what the "Most played" sections go by)
     const plays = props.entry.plays ?? 0
@@ -182,7 +200,8 @@ function onMoved() {
 <template>
   <CardMenu
     ref="menu"
-    :items="items"
+    :items="menuItems"
+    icon-only
     :title="entry.name"
     :subtitle="entry.size ? formatSize(entry.size) : undefined"
     :details="details"

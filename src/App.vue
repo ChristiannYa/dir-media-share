@@ -1,5 +1,15 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, reactive, ref, watch } from 'vue'
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  reactive,
+  readonly,
+  ref,
+  watch,
+} from 'vue'
 import BreadcrumbBar from '@/components/BreadcrumbBar.vue'
 import GalleryCard from '@/components/GalleryCard.vue'
 import MediaLightbox from '@/components/MediaLightbox.vue'
@@ -19,7 +29,12 @@ import {
 } from '@/constants'
 import { useAlphabetIndex } from '@/composables/useAlphabetIndex'
 import { backgroundPaused, holdBackgroundPause } from '@/composables/useBackgroundPause'
-import { RELOAD_GALLERY_KEY, REVEAL_ENTRY_KEY, useGallery } from '@/composables/useGallery'
+import {
+  RELOAD_GALLERY_KEY,
+  REVEAL_ENTRY_KEY,
+  SELECTION_KEY,
+  useGallery,
+} from '@/composables/useGallery'
 import { useJobEvents } from '@/composables/useJobEvents'
 import { useLightbox } from '@/composables/useLightbox'
 import { MEDIA_STATUS_KEY, useMediaStatus } from '@/composables/useMediaStatus'
@@ -202,8 +217,9 @@ watch(selected, (entry) => {
 })
 
 // ── Selection mode ──
-// Turned on from the top bar: tapping a file picks it instead of opening it,
-// and the bar at the bottom moves or trashes the picked ones together.
+// Turned on from the Select row of a file's menu (FileMenu.vue): tapping a
+// file picks it instead of opening it, and the bar at the bottom moves or
+// trashes the picked ones together (SelectionBar.vue).
 const selecting = ref(false)
 /** Paths of the picked files (of the open folder only) */
 const picked = reactive(new Set<string>())
@@ -215,6 +231,15 @@ function toggleSelecting() {
   selecting.value = !selecting.value
   picked.clear()
 }
+
+provide(SELECTION_KEY, {
+  active: readonly(selecting),
+  // the file whose menu it came from starts picked
+  start(path: string) {
+    if (!selecting.value) toggleSelecting()
+    picked.add(path)
+  },
+})
 
 function togglePicked(entry: Entry) {
   if (picked.has(entry.path)) picked.delete(entry.path)
@@ -237,8 +262,7 @@ watch(entries, (list) => {
   for (const path of picked) if (!present.has(path)) picked.delete(path)
 })
 
-// nothing left to pick here (only folders, or empty): selection mode ends,
-// as its button is hidden too
+// nothing left to pick here (only folders, or empty): selection mode ends
 watch(selectableCount, (count) => {
   if (count === 0 && selecting.value) toggleSelecting()
 })
@@ -449,12 +473,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     <BreadcrumbBar
       :root-name="rootFolderName"
       :crumbs="breadcrumbs"
-      :selecting="selecting"
       :stats="folderStats"
-      :can-select="selectableCount > 0"
       :alphabet="alphabet"
       @navigate="goTo"
-      @select="toggleSelecting"
       @settings="settingsOpen = true"
       @shutdown="shutdown"
       @changed="refresh"
@@ -510,7 +531,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       :selectable="selectableCount"
       @select-all="pickAll"
       @select-none="picked.clear()"
-      @done="toggleSelecting"
+      @done="selecting && toggleSelecting()"
       @changed="onSelectionChanged"
     />
 
@@ -539,9 +560,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   box-sizing: border-box;
 }
 
-/* room under the last cards for the selection bar */
+/* room under the last cards for the selection bar (three rows, SelectionBar.vue) */
 .gallery.selecting {
-  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(10rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* ── Grid ── */

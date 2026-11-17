@@ -22,6 +22,22 @@ export function formatDate(ms: number): string {
   return `${d.getMonth() + 1}.${d.getDate()}.${year} ${hour}:${minutes}:${seconds} ${half}`
 }
 
+/**
+ * Long date: the month's name, the day and the full year, then the time on
+ * a 12-hour clock with seconds:
+ * April 1 2026, 16:06:30 → "April 1, 2026, 4:06:30 PM"
+ */
+export function formatLongDate(ms: number): string {
+  const d = new Date(ms)
+  const date = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  return `${date}, ${time}`
+}
+
 /** Standard video sizes, biggest first: name, short side, long side (px) */
 const QUALITY_TIERS: ReadonlyArray<[name: string, short: number, long: number]> = [
   ['8K', 4320, 7680],

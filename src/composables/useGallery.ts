@@ -1,4 +1,4 @@
-import { computed, ref, type InjectionKey } from 'vue'
+import { computed, ref, type InjectionKey, type Ref } from 'vue'
 import { fetchEntries, fetchInfo } from '@/api'
 import type { Crumb, Entry } from '@/types'
 
@@ -16,6 +16,17 @@ export const RELOAD_GALLERY_KEY: InjectionKey<() => Promise<void>> = Symbol('rel
  */
 export const REVEAL_ENTRY_KEY: InjectionKey<(path: string) => Promise<void>> =
   Symbol('revealEntry')
+
+/**
+ * Provided by App: selection mode (tapping a file picks it; the bar at the
+ * bottom acts on the picked ones). `start(path)` turns it on with that file
+ * already picked, from the Select button of a file's menu (FileMenu.vue);
+ * `active` says whether it's on
+ */
+export const SELECTION_KEY: InjectionKey<{
+  active: Readonly<Ref<boolean>>
+  start: (path: string) => void
+}> = Symbol('selection')
 
 interface GalleryHooks {
   /** Called when leaving the current folder, before the new listing is fetched */

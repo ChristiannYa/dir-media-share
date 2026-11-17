@@ -1,24 +1,41 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { settings } from '@/settings'
-import type { MenuItem } from '@/types'
+import type { MenuDetail, MenuItem } from '@/types'
 
 /**
  * Popup of actions for a card or folder. It has no button of its own: the
  * owner calls `open()` (exposed), on a right-click or a press-and-hold
  * (useContextHold).
  */
-defineProps<{
+const props = defineProps<{
   items: MenuItem[]
   /** Popup heading, usually the card's name */
   title: string
   subtitle?: string
   /** Facts shown above the actions, e.g. dates ("Added", "Last viewed") */
-  details?: Array<{ label: string; value: string }>
+  details?: MenuDetail[]
+  /**
+   * Buttons show only their icon (the label is the tooltip and the
+   * screen-reader name; descriptions aren't shown). While an action runs or
+   * shows its result, that text appears next to its icon
+   */
+  iconOnly?: boolean
 }>()
 
 const open = ref(false)
+
+/** The items by row: neighbors with the same `row` together, each other item alone */
+const rows = computed(() => {
+  const list: MenuItem[][] = []
+  for (const item of props.items) {
+    const last = list[list.length - 1] as MenuItem[] | undefined
+    if (item.row && last?.[0].row === item.row) last.push(item)
+    else list.push([item])
+  }
+  return list
+})
 
 defineExpose({
   open() {
@@ -115,17 +132,24 @@ onUnmounted(() => clearTimeout(statusTimer))
     <dl v-if="!confirming && details?.length" class="details">
       <template v-for="d in details" :key="d.label">
         <dt>{{ d.label }}</dt>
-        <dd>{{ d.value }}</dd>
+        <dd>
+          {{ d.value }}
+          <span v-if="d.note" class="detail-note">{{ d.note }}</span>
+        </dd>
       </template>
     </dl>
 
     <!-- The actions -->
     <div v-if="!confirming" class="menu-list">
+      <div v-for="row in rows" :key="row[0].label" class="menu-row">
       <button
-        v-for="item in items"
+        v-for="item in row"
         :key="item.label"
         class="menu-item"
+        :aria-label="iconOnly ? labelOf(item) : undefined"
+        :title="iconOnly ? item.label : undefined"
         :class="{
+          'icon-only': iconOnly,
           danger: item.danger,
           running: running === item,
           done: status?.item === item && !status.failed,
@@ -134,16 +158,31 @@ onUnmounted(() => clearTimeout(statusTimer))
         :disabled="running !== null"
         @click="pick(item)"
       >
-        <!-- while its action runs, a spinner takes the icon's place -->
-        <span v-if="item.icon || running === item" class="icon">
+        <!-- while its action runs, a spinner takes the icon's place. Icon
+             only: right in the button, which is its frame already; else
+             in a little box of its own, beside the text -->
+        <template v-if="iconOnly">
+          <span v-if="running === item" class="spinner" role="status" aria-label="Working" />
+          <svg v-else-if="item.icon" class="bare-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path :d="item.icon" />
+          </svg>
+        </template>
+        <span v-else-if="item.icon || running === item" class="icon">
           <span v-if="running === item" class="spinner" role="status" aria-label="Working" />
           <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path :d="item.icon" /></svg>
         </span>
-        <span class="text">
+        <!-- icon only: text just while it runs or shows its result -->
+        <span
+          v-if="!iconOnly || running === item || status?.item === item"
+          class="text"
+        >
           <span class="label">{{ labelOf(item) }}</span>
-          <span v-if="item.description" class="description">{{ item.description }}</span>
+          <span v-if="item.description && !iconOnly" class="description">
+            {{ item.description }}
+          </span>
         </span>
       </button>
+      </div>
     </div>
   </ModalDialog>
 </template>
@@ -172,6 +211,12 @@ onUnmounted(() => clearTimeout(statusTimer))
   font-variant-numeric: tabular-nums;
 }
 
+/* e.g. how long ago: its own line under the value, dimmer */
+.detail-note {
+  display: block;
+  color: #8f88aa;
+}
+
 /* ── Action list ── */
 .menu-list {
   display: flex;
@@ -179,8 +224,16 @@ onUnmounted(() => clearTimeout(statusTimer))
   gap: 0.4rem;
 }
 
+/* one row: a single item, or items sharing it (MenuItem.row) in equal widths */
+.menu-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
 .menu-item {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: 0.8rem;
   width: 100%;
@@ -194,6 +247,13 @@ onUnmounted(() => clearTimeout(statusTimer))
   transition:
     background 0.12s,
     border-color 0.12s;
+}
+
+/* icon only: the icon in the middle of the button */
+.menu-item.icon-only {
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
 }
 
 .menu-item:hover:not(:disabled) {
@@ -223,10 +283,18 @@ onUnmounted(() => clearTimeout(statusTimer))
   background: rgba(255, 255, 255, 0.07);
 }
 
-.icon svg {
+.icon svg,
+.bare-icon {
   width: 1.2rem;
   height: 1.2rem;
   fill: currentColor;
+}
+
+/* icon only: as tall as the boxed icons, so the buttons keep their height */
+.bare-icon {
+  flex: none;
+  /* 0.5rem padding + 0.75rem + 1.2rem icon = the boxed ones' 0.75rem + 2.2rem */
+  margin-block: 0.75rem;
 }
 
 /* the running action, in the icon's place (like the upload / compress dialogs' spinners) */

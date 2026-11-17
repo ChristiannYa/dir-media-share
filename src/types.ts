@@ -61,6 +61,14 @@ export interface FolderRef {
   path: string
 }
 
+/** A fact at the top of a card's or folder's menu (CardMenu), e.g. a date */
+export interface MenuDetail {
+  label: string
+  value: string
+  /** Smaller line under the value, e.g. how long ago the date was */
+  note?: string
+}
+
 /** One action in a card's or folder's menu (CardMenu) */
 export interface MenuItem {
   label: string
@@ -75,6 +83,11 @@ export interface MenuItem {
   busyLabel?: string | (() => string)
   /** Red text, for destructive actions */
   danger?: boolean
+  /**
+   * Items next to each other in the list with the same `row` share one row,
+   * side by side (each still its own button); without it, a row of its own
+   */
+  row?: string
   /** If set, the menu asks this first and only runs the action once confirmed */
   confirm?: {
     message: string

@@ -12,20 +12,14 @@ import { formatSize } from '@/utils/format'
 const props = defineProps<{
   rootName: string
   crumbs: Crumb[]
-  /** Selection mode is on (the Select button shows it) */
-  selecting?: boolean
   /** What the open folder holds directly, and its total size, shown on the third row */
   stats: { videos: number; images: number; folders: number; size: number }
-  /** The folder has files to pick: shows the Select button */
-  canSelect: boolean
   /** The folder's first letters and the one you're at, for the fourth row (null: the page doesn't scroll) */
   alphabet: { letters: string[]; current: string } | null
 }>()
 
 const emit = defineEmits<{
   navigate: [path: string]
-  /** Turn selection mode on or off */
-  select: []
   settings: []
   shutdown: []
   /** Files or a folder were added to the open folder: reload it */
@@ -106,24 +100,6 @@ onUnmounted(() => rowResize.disconnect())
     <div class="actions">
       <!-- time left until the app locks (nothing if it never does) -->
       <LockTimer class="bar-timer theme-glass" />
-      <!-- selection mode: pick files to move or delete together (only with files to pick) -->
-      <button
-        v-if="canSelect"
-        type="button"
-        class="bar-btn select-btn"
-        :class="{ active: selecting }"
-        :aria-pressed="!!selecting"
-        title="Select files to move or delete"
-        @click="emit('select')"
-      >
-        <!-- checked box -->
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H5V5h14v14zM17.99 9l-1.41-1.42-6.59 6.59-2.58-2.57-1.42 1.41 4 3.99z"
-          />
-        </svg>
-        <span>Select</span>
-      </button>
       <!-- app mode: goon records and shows plays, last viewed and the heatmap; dev neither -->
       <AppModeButton class="theme-glass" />
       <!-- pushes settings and shutdown to the right end -->
@@ -433,29 +409,9 @@ onUnmounted(() => rowResize.disconnect())
   font-size: 0.8rem;
 }
 
-/* takes the free space between the left (timer, select) and right buttons */
+/* takes the free space between the left (timer, mode) and right buttons */
 .bar-spacer {
   flex: 1;
-}
-
-.select-btn {
-  gap: 0.3rem;
-  font-size: 0.8rem;
-}
-
-.select-btn svg {
-  width: 1rem;
-  height: 1rem;
-  fill: currentColor;
-}
-
-.select-btn:hover {
-  color: #f0ecff;
-}
-
-/* on while selection mode is */
-.select-btn.active {
-  color: #6ea0ff;
 }
 
 .settings-btn:hover {
