@@ -8,6 +8,9 @@ import { generatedCacheControl } from './cacheControl.ts'
 import { startCachePruning } from './cachePrune.ts'
 import { PREVIEW_DIR } from './consts/previews.ts'
 import {
+  ROUTE_APP_MODE_FRAME,
+  ROUTE_APP_MODE_IMAGE,
+  ROUTE_APP_MODE_IMAGES,
   ROUTE_BROWSE,
   ROUTE_CANCEL_JOB,
   ROUTE_CLEAR_CACHE,
@@ -47,6 +50,12 @@ import {
 } from './consts/routes.ts'
 import { PASSWORD_ENV } from './consts/server.ts'
 import { STORYBOARD_DIR } from './consts/storyboards.ts'
+import {
+  appModeImage,
+  appModeImages,
+  saveAppModeFrame,
+  uploadAppModeImage,
+} from './handlers/appModeImage.ts'
 import { browse } from './handlers/browse.ts'
 import { clearCache } from './handlers/clearCache.ts'
 import { compressFile, discardCompressedFile } from './handlers/compress.ts'
@@ -130,6 +139,9 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_LOGIN]: { POST: login },
   [ROUTE_SESSION]: { GET: session },
   [ROUTE_LOGOUT]: { POST: logout },
+  [ROUTE_APP_MODE_IMAGE]: { GET: appModeImage, POST: uploadAppModeImage },
+  [ROUTE_APP_MODE_IMAGES]: { GET: appModeImages },
+  [ROUTE_APP_MODE_FRAME]: { POST: saveAppModeFrame },
 }
 
 /**

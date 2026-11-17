@@ -108,6 +108,15 @@ export const ROUTE_LOGIN = '/api/login'
 export const ROUTE_LOGOUT = '/api/logout'
 /** Whether this browser is logged in */
 export const ROUTE_SESSION = '/api/session'
+/**
+ * The image beside the app mode pill: GET ?mode= the whole image, in whatever
+ * format it was saved; POST ?mode=&ext= with the file as the body replaces it
+ */
+export const ROUTE_APP_MODE_IMAGE = '/api/app-mode-image'
+/** Each mode's image version and frame (the part the pill shows): GET */
+export const ROUTE_APP_MODE_IMAGES = '/api/app-mode-images'
+/** Saves the part of a mode's image the pill shows: POST ?mode= JSON { x, y, w, h } */
+export const ROUTE_APP_MODE_FRAME = '/api/app-mode-frame'
 
 // ── Static folders ──
 

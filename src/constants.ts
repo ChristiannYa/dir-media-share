@@ -205,6 +205,15 @@ export const API = {
   logout: '/api/logout',
   /** Logged in? */
   session: '/api/session',
+  /**
+   * The image beside the app mode pill (config/data/app-mode/, any image
+   * format): GET ?mode= the whole image; POST ?mode=&ext= with the file replaces it
+   */
+  appModeImage: '/api/app-mode-image',
+  /** Each mode's image version and frame (the part the pill shows): GET */
+  appModeImages: '/api/app-mode-images',
+  /** Saves the part of a mode's image the pill shows: POST ?mode= JSON { x, y, w, h } */
+  appModeFrame: '/api/app-mode-frame',
 } as const
 
 /**

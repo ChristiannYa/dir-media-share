@@ -321,6 +321,55 @@ export async function numberFiles(path: string): Promise<number> {
   return data.renamed
 }
 
+// ── App mode images ──
+
+/** The part of a mode's image the pill shows: fractions (0–1) of its width and height */
+export interface ImageFrame {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** A mode's image: its version (changes with each new image) and frame (null = centered square) */
+export interface AppModeImageInfo {
+  version: number
+  frame: ImageFrame | null
+}
+
+/** Per mode: its image, or null if it has none */
+export async function fetchAppModeImages(): Promise<Record<string, AppModeImageInfo | null>> {
+  const res = await fetch(API.appModeImages)
+  if (!res.ok) throw new Error(`Loading the app mode images failed (${res.status})`)
+  return (await res.json()) as Record<string, AppModeImageInfo | null>
+}
+
+/** Makes `file` the image of `mode`, replacing the one it had */
+export async function uploadAppModeImage(mode: string, file: File): Promise<void> {
+  const ext = file.name.split('.').pop() ?? ''
+  const res = await fetch(
+    `${API.appModeImage}?mode=${encodeURIComponent(mode)}&ext=${encodeURIComponent(ext)}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: file },
+  )
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `Uploading the ${mode} image failed (${res.status})`)
+  }
+}
+
+/** Saves the part of `mode`'s image the pill shows */
+export async function saveAppModeFrame(mode: string, frame: ImageFrame): Promise<void> {
+  const res = await fetch(`${API.appModeFrame}?mode=${encodeURIComponent(mode)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(frame),
+  })
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `Saving the ${mode} image's frame failed (${res.status})`)
+  }
+}
+
 /** A running upload */
 /** Where an upload was saved */
 export interface Uploaded {

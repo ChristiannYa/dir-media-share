@@ -431,6 +431,11 @@ onUnmounted(() => rowResize.disconnect())
   font-size: 0.72rem; /* the app mode pill's, so both pills are the same height */
 }
 
+/* the mode pill and its image, a bit further from the timer than the bar's gap */
+.app-mode-group {
+  margin-left: 0.5rem;
+}
+
 /* takes the free space between the left (timer, mode) and right buttons */
 .bar-spacer {
   flex: 1;

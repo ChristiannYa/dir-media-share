@@ -112,9 +112,10 @@ async function loadMostPlayed() {
   const kind = mostPlayedKind.value
   // dev mode: no section (src/appMode.ts)
   if (!kind || count <= 0 || !recordsVideoData.value) {
-    mostPlayed.value = []
-    mostPlayedLoaded.value = false
-    media.setExtra([])
+    // still shrinking away (just switched to dev mode): its cards keep what
+    // they show until it's gone, then onMostPlayedLeft empties it
+    if (mostPlayedLeaving) return
+    clearMostPlayed()
     return
   }
   try {
@@ -131,10 +132,45 @@ async function loadMostPlayed() {
 // a new count (Settings, on any device once it reloads them) shows right away
 watch(() => settings.mostPlayedCount, () => void loadMostPlayed())
 
+function clearMostPlayed() {
+  mostPlayed.value = []
+  mostPlayedLoaded.value = false
+  media.setExtra([])
+}
+
+// ── Switching the app mode: "Most played" grows in / shrinks away ──
+// Only then: opening a folder or entering selection mode still shows / hides
+// it at once, as before.
+
+/** Longest wait for the section after a switch (its list loads first); after it, no animation */
+const MODE_SWITCH_MAX_MS = 4000
+
+/** The app mode was just switched: the section's next show / hide is animated */
+const modeSwitching = ref(false)
+let modeSwitchTimer: ReturnType<typeof setTimeout> | undefined
+/** The section is playing its shrink-away */
+let mostPlayedLeaving = false
+
+function onMostPlayedLeaving() {
+  mostPlayedLeaving = true
+}
+
+function onMostPlayedLeft() {
+  mostPlayedLeaving = false
+  modeSwitching.value = false
+  // emptied now that it's gone (loadMostPlayed left it alone meanwhile)
+  if (!recordsVideoData.value) clearMostPlayed()
+}
+
 // switching between dev and goon mode: the listing again, with or without the
 // plays and "last viewed" (the server leaves them out in dev mode); reloading
 // also fills or empties "Most played"
-watch(recordsVideoData, () => void reload())
+watch(recordsVideoData, () => {
+  modeSwitching.value = true
+  clearTimeout(modeSwitchTimer)
+  modeSwitchTimer = setTimeout(() => (modeSwitching.value = false), MODE_SWITCH_MAX_MS)
+  void reload()
+})
 
 // the listing in the order picked in Settings (Sorting → Sort by)
 const sortedEntries = computed(() => sortEntries(entries.value, settings.sortBy))
@@ -499,27 +535,39 @@ onUnmounted(() => {
       <p>{{ EMPTY_FOLDER_TEXT }}</p>
     </div>
 
-    <!-- the most played videos and photos of this folder and its subfolders -->
-    <section v-if="showMostPlayed" class="most-played">
-      <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
-      <p v-if="mostPlayed.length === 0" class="most-played-empty">{{ MOST_PLAYED_EMPTY_TEXT }}</p>
-      <div v-else class="grid">
-        <GalleryCard
-          v-for="entry in mostPlayed"
-          :key="mostPlayedKey(entry)"
-          :status-key="mostPlayedKey(entry)"
-          :entry="entry"
-          :selecting="false"
-          :selected="false"
-          link-only
-          views-only
-          @open="openFromMostPlayed"
-          @favorite="toggleFavorite"
-          @changed="refresh"
-        />
-      </div>
-      <h2 class="section-title">All</h2>
-    </section>
+    <!-- the most played videos and photos of this folder and its subfolders.
+         Switching the app mode makes it grow in / shrink away (no-anim: at once) -->
+    <Transition
+      :name="modeSwitching ? 'mode-section' : 'no-anim'"
+      @before-leave="onMostPlayedLeaving"
+      @after-leave="onMostPlayedLeft"
+      @after-enter="modeSwitching = false"
+    >
+      <section v-if="showMostPlayed" class="most-played">
+        <div class="most-played-inner">
+          <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
+          <p v-if="mostPlayed.length === 0" class="most-played-empty">
+            {{ MOST_PLAYED_EMPTY_TEXT }}
+          </p>
+          <div v-else class="grid">
+            <GalleryCard
+              v-for="entry in mostPlayed"
+              :key="mostPlayedKey(entry)"
+              :status-key="mostPlayedKey(entry)"
+              :entry="entry"
+              :selecting="false"
+              :selected="false"
+              link-only
+              views-only
+              @open="openFromMostPlayed"
+              @favorite="toggleFavorite"
+              @changed="refresh"
+            />
+          </div>
+          <h2 class="section-title">All</h2>
+        </div>
+      </section>
+    </Transition>
 
     <div class="grid main-grid">
       <GalleryCard
@@ -640,8 +688,52 @@ onUnmounted(() => {
 }
 
 /* ── Most played ── */
+/* a one-row grid around its content, so switching the app mode can shrink the
+   row to nothing (grid-template-rows animates; height: auto doesn't) */
 .most-played {
+  display: grid;
+  grid-template-rows: 1fr;
   margin-bottom: 0.5rem;
+}
+
+.most-played-inner {
+  min-height: 0;
+}
+
+/* switching the app mode: grows in from nothing and fades in, or the reverse;
+   the grid below slides along. Clipped only meanwhile (the cards' hover and
+   glow reach past the section otherwise) */
+.mode-section-enter-active,
+.mode-section-leave-active {
+  transition:
+    grid-template-rows 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    margin-bottom 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.3s ease;
+}
+
+.mode-section-enter-active .most-played-inner,
+.mode-section-leave-active .most-played-inner {
+  overflow: hidden;
+}
+
+.mode-section-enter-from,
+.mode-section-leave-to {
+  grid-template-rows: 0fr;
+  margin-bottom: 0;
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-section-enter-active,
+  .mode-section-leave-active {
+    transition: opacity 0.2s;
+  }
+
+  .mode-section-enter-from,
+  .mode-section-leave-to {
+    grid-template-rows: 1fr;
+    margin-bottom: 0.5rem;
+  }
 }
 
 .section-title {

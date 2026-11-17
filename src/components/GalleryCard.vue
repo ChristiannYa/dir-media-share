@@ -512,14 +512,17 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
             </svg>
             {{ entry.image_count }}
           </span>
-          <span
-            v-if="showFolderViews"
-            class="count"
-            :title="`${playsLabel(entry.plays ?? 0)} of what's inside, on every device`"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
-            {{ entry.plays }}
-          </span>
+          <!-- slides open / shut when the app mode switches -->
+          <Transition name="mode-count">
+            <span
+              v-if="showFolderViews"
+              class="count"
+              :title="`${playsLabel(entry.plays ?? 0)} of what's inside, on every device`"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+              {{ entry.plays }}
+            </span>
+          </Transition>
           <span v-if="entry.size && !viewsOnly" class="count" title="Total size">
             <!-- hard drive -->
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -637,16 +640,19 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         <span class="sweep-frost force-glass" />
       </div>
       <!-- top-left: how many times it was played (not in selection mode: the check is
-           there); viewsOnly: bottom-right, where the folder cards have theirs -->
-      <span
-        v-if="!selecting && recordsVideoData"
-        class="badge-glass info-badge plays-badge"
-        :class="{ 'views-only': viewsOnly }"
-        :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
-        {{ entry.plays ?? 0 }}
-      </span>
+           there); viewsOnly: bottom-right, where the folder cards have theirs.
+           Pops in / out when the app mode (or selection mode) switches -->
+      <Transition name="mode-badge">
+        <span
+          v-if="!selecting && recordsVideoData"
+          class="badge-glass info-badge plays-badge"
+          :class="{ 'views-only': viewsOnly }"
+          :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+          {{ entry.plays ?? 0 }}
+        </span>
+      </Transition>
       <!-- top-right: the quality -->
       <span v-if="quality && !viewsOnly" class="badge-glass info-badge quality-badge">
         {{ quality }}
@@ -1423,6 +1429,70 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   left: auto;
   bottom: var(--badge-inset);
   right: var(--badge-inset);
+}
+
+/* switching the app mode: the views badge pops in from (or shrinks into) its
+   corner */
+.plays-badge {
+  transform-origin: top left;
+}
+
+.plays-badge.views-only {
+  transform-origin: bottom right;
+}
+
+.mode-badge-enter-active,
+.mode-badge-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.mode-badge-enter-from,
+.mode-badge-leave-to {
+  opacity: 0;
+  transform: scale(0.6);
+}
+
+/* a folder's views, in the row with its counts: opens to its width (and back),
+   so the counts beside it slide along instead of jumping */
+.mode-count-enter-active,
+.mode-count-leave-active {
+  overflow: hidden;
+  transition:
+    max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 0.25s ease;
+}
+
+.mode-count-enter-from,
+.mode-count-leave-to {
+  max-width: 0;
+  opacity: 0;
+}
+
+.mode-count-enter-to,
+.mode-count-leave-from {
+  /* wider than any count: the most it opens to */
+  max-width: 5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mode-badge-enter-active,
+  .mode-badge-leave-active,
+  .mode-count-enter-active,
+  .mode-count-leave-active {
+    transition: opacity 0.2s;
+  }
+
+  .mode-badge-enter-from,
+  .mode-badge-leave-to {
+    transform: none;
+  }
+
+  .mode-count-enter-from,
+  .mode-count-leave-to {
+    max-width: 5rem;
+  }
 }
 
 .ts-badge {

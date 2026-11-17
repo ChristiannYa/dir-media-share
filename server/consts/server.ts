@@ -84,6 +84,13 @@ export const PLAYS_FILE = path.join(DATA_DIR, 'plays.json')
  */
 export const HEATMAP_FILE = path.join(DATA_DIR, 'heatmap.json')
 /**
+ * The images beside the app mode pill (src/components/AppModeButton.vue): one
+ * per mode, named after it in any image format (goon.png, dev.jpg…), and
+ * frames.json with the part of each the pill shows. Set in Settings → App →
+ * App mode images; served by server/handlers/appModeImage.ts.
+ */
+export const APP_MODE_IMAGES_DIR = path.join(DATA_DIR, 'app-mode')
+/**
  * Where older versions saved them ($XDG_CONFIG_HOME/med/, usually
  * ~/.config/med/). Read only while SETTINGS_FILE doesn't exist yet, so saved
  * settings carry over; the next save writes SETTINGS_FILE.

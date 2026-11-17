@@ -690,6 +690,11 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* the mode pill and its image, a bit further from the timer */
+.media-status .app-mode-group {
+  margin-left: 0.4rem;
+}
+
 /* photo fullscreen: the top left of the screen */
 .lightbox.fullscreen .media-status {
   position: fixed;
@@ -720,10 +725,12 @@ onUnmounted(() => {
    controls (the rule at the top of the script). Something new over the
    photo / video goes in both lists (or inside .media-status). The pills
    fade, not .media-status: a parent's opacity under 1 cuts its children
-   off from what's behind, so their glass would lose its blur mid-fade */
+   off from what's behind, so their glass would lose its blur mid-fade. For
+   the same reason the mode's pill and image fade, not their group */
 .fullscreen-btn,
 .media-counter,
-.media-status > * {
+.media-status > :not(.app-mode-group),
+.media-status .app-mode-group > * {
   transition:
     opacity var(--overlay-fade),
     background 0.15s,
@@ -734,7 +741,8 @@ onUnmounted(() => {
    press a button) */
 .lightbox.overlay-off .fullscreen-btn,
 .lightbox.overlay-off .media-counter,
-.lightbox.overlay-off .media-status > * {
+.lightbox.overlay-off .media-status > :not(.app-mode-group),
+.lightbox.overlay-off .media-status .app-mode-group > * {
   opacity: 0;
   pointer-events: none;
 }
