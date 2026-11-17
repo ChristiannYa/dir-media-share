@@ -1,13 +1,14 @@
-// Short looping clip made of slices spread across a video.
+// Short looping clip made of slices spread across a video. A video no longer
+// than all the slices together gets the whole video as its clip instead.
 
-import { exists, once, tempFor } from '../cache.ts'
+import { cacheName, exists, once, tempFor } from '../cache.ts'
 import type { BuildHooks } from '../jobEvents.ts'
 import { PREVIEW_FALLBACK_FPS } from '../consts/previews.ts'
 import { Semaphore } from '../semaphore.ts'
 import { serverSettings as s } from '../settings.ts'
 import { MediaError } from './errors.ts'
 import { ffmpegToFile } from './ffmpeg.ts'
-import { videoInfo, type VideoInfo } from './probe.ts'
+import { cachedVideoInfo, videoInfo, type VideoInfo } from './probe.ts'
 
 /** Shared with folder previews: previewMaxJobs encodes in total */
 export const JOBS = new Semaphore(() => s.previewMaxJobs)
@@ -25,6 +26,25 @@ export function cacheSettings() {
     s.previewPreset,
     s.scaleFlags,
   ]
+}
+
+/**
+ * A video this long gets the whole video as its preview: all the slices
+ * together would be as long or longer (they'd overlap and repeat parts)
+ */
+export function isWholeVideo(duration: number, clips = s.previewClips, secs = s.previewSecs): boolean {
+  return clips * secs >= duration
+}
+
+/**
+ * The cache version of a video's preview (server/previewNames.ts). A video
+ * that gets the whole video as its preview has its own version, so a sliced
+ * clip built for it before (or with settings it was longer than) is rebuilt
+ */
+export async function previewVersion(video: string): Promise<string> {
+  const info = await cachedVideoInfo(video)
+  const settings = cacheSettings()
+  return cacheName(video, info && isWholeVideo(info.duration) ? [...settings, 'whole'] : settings)
 }
 
 /** Output arguments shared by video and folder previews: encodes `[v]` of `graph` into `out` */
@@ -85,22 +105,33 @@ export async function ensure(
       const fps = outputFps(info)
       const tmp = tempFor(out)
 
-      // one input per slice (fast seek), each scaled, then joined
+      // height by the shape it plays at (`dar`: non-square pixels applied),
+      // then square pixels, so it isn't squashed
+      const fit = `scale=${width}:'trunc(ow/dar/2)*2':flags=${scaleFlags},setsar=1,setpts=PTS-STARTPTS,fps=${fps.toFixed(3)}`
       const args = ['-v', 'error', '-y']
       let graph = ''
-      let labels = ''
-      // how long the clip will be, to report progress (a short video gives shorter slices)
+      // how long the clip will be, to report progress
       let length = 0
-      for (let i = 0; i < clips; i++) {
-        const start = sliceStart(info.duration, i, clips, secs)
-        args.push('-ss', start.toFixed(2), '-t', secs.toFixed(2), '-i', video)
-        // height by the shape it plays at (`dar`: non-square pixels applied),
-        // then square pixels, so it isn't squashed
-        graph += `[${i}:v]scale=${width}:'trunc(ow/dar/2)*2':flags=${scaleFlags},setsar=1,setpts=PTS-STARTPTS,fps=${fps.toFixed(3)}[v${i}];`
-        labels += `[v${i}]`
-        length += Math.max(0, Math.min(secs, info.duration - start))
+
+      if (isWholeVideo(info.duration, clips, secs)) {
+        // the slices together would be as long as the video or longer (they'd
+        // overlap and repeat parts): the whole video instead, start to end.
+        // It plays at the previews' speed like any clip (the browser sets it)
+        args.push('-i', video)
+        graph = `[0:v]${fit}[v]`
+        length = info.duration
+      } else {
+        // one input per slice (fast seek), each scaled, then joined
+        let labels = ''
+        for (let i = 0; i < clips; i++) {
+          const start = sliceStart(info.duration, i, clips, secs)
+          args.push('-ss', start.toFixed(2), '-t', secs.toFixed(2), '-i', video)
+          graph += `[${i}:v]${fit}[v${i}];`
+          labels += `[v${i}]`
+          length += Math.max(0, Math.min(secs, info.duration - start))
+        }
+        graph += `${labels}concat=n=${clips}:v=1:a=0[v]`
       }
-      graph += `${labels}concat=n=${clips}:v=1:a=0[v]`
 
       await ffmpegToFile(
         [...args, ...encodeArgs(graph, tmp)],

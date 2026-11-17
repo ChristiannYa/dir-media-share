@@ -143,6 +143,7 @@ async function load() {
     }
     buildingOnServer = false
     clipFps.value = info.fps ?? null
+    wholeClip.value = info.whole === true
     const clipUrl = new URL(info.url, location.href).href
 
     phase.value = 'downloading'
@@ -184,7 +185,18 @@ function onPlaying() {
   if (isFirstPlay(`${props.kind}:${props.path}`)) previewHaptic()
   emit('playing')
   lingerTimer = setTimeout(() => (showStatus.value = false), settings.previewStatusLingerMs)
+  // TEMPORARY (debugging the short-video previews): the clip is the whole video
+  if (wholeClip.value) showWholeTag.value = true
 }
+
+// ── TEMPORARY: "Whole video" tag ──
+// Floats up over the card and fades when its clip is the whole video instead
+// of slices (server/media/preview.ts, isWholeVideo). Remove once checked
+
+/** The server says the clip is the whole video (measured on the clip) */
+const wholeClip = ref(false)
+/** The tag is floating (once, when the preview starts playing) */
+const showWholeTag = ref(false)
 
 function onVideoError() {
   phase.value = 'failed'
@@ -280,6 +292,14 @@ const status = computed<{ icon: Icon; text: string; busy: boolean }>(() => {
       <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICONS[status.icon]" /></svg>
       <span>{{ status.text }}</span>
     </div>
+    <!-- TEMPORARY: the clip is the whole video, not slices -->
+    <div
+      v-if="showWholeTag"
+      class="whole-tag badge-glass"
+      @animationend="showWholeTag = false"
+    >
+      Whole video
+    </div>
   </div>
 </template>
 
@@ -352,6 +372,61 @@ video.ready {
 
 .status.hidden {
   opacity: 0;
+}
+
+/* ── TEMPORARY: "Whole video" tag ── */
+/* centered over the card: pops in, holds, then floats up and fades (~3s) */
+.whole-tag {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  animation: whole-tag-float 3s ease-out forwards;
+}
+
+@keyframes whole-tag-float {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.85);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -60%);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -140%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .whole-tag {
+    animation-name: whole-tag-fade;
+  }
+}
+
+@keyframes whole-tag-fade {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%);
+  }
+  15%,
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
 }
 
 @keyframes pulse {

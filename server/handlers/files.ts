@@ -364,7 +364,7 @@ export const numberFiles: Handler = async (_req, res, url) => {
     const full = path.join(dir, p.from)
     before.set(p.from, {
       thumb: await cacheFile(THUMB_DIR, await cacheName(full, thumbnail.cacheSettings()), 'jpg'),
-      version: await cacheName(full, preview.cacheSettings()),
+      version: await preview.previewVersion(full),
     })
   }
 
@@ -432,7 +432,7 @@ export const numberFiles: Handler = async (_req, res, url) => {
       to: relOf(p.to),
       name: `vid_${slug}_${p.n}`,
       oldVersion: before.get(p.from)?.version ?? '',
-      newVersion: await cacheName(path.join(dir, p.to), preview.cacheSettings()),
+      newVersion: await preview.previewVersion(path.join(dir, p.to)),
     })
   }
   await movePreviews(moves).catch((e) => console.error('Renaming the previews failed:', e))

@@ -110,22 +110,31 @@ export async function videoInfo(file: string): Promise<VideoInfo | null> {
 }
 
 /**
- * Frame rates of finished preview clips, by path and modification time: a
- * clip is rebuilt under the same name when its video or the settings change
+ * videoInfo results by path and modification time: a preview clip is rebuilt
+ * under the same name when its video or the settings change, and a video
+ * edited in place gets a new time, so neither is answered from an old probe
  */
-const clipFpsCache = new Map<string, number | null>()
+const infoCache = new Map<string, VideoInfo | null>()
+
+/**
+ * videoInfo, probed once per version of the file (for what's asked about on
+ * every preview request: the finished clip and its video)
+ */
+export async function cachedVideoInfo(file: string): Promise<VideoInfo | null> {
+  const key = `${file}@${(await stat(file).catch(() => null))?.mtimeMs ?? 0}`
+  if (infoCache.has(key)) return infoCache.get(key) ?? null
+  const info = await videoInfo(file)
+  if (infoCache.size > 5000) infoCache.clear() // previews come and go; don't grow forever
+  infoCache.set(key, info)
+  return info
+}
 
 /**
  * Frame rate of a finished preview clip, so each device can pick a playback
  * speed that fits its screen's refresh rate. Probed once per build of a clip.
  */
 export async function clipFps(clip: string): Promise<number | null> {
-  const key = `${clip}@${(await stat(clip).catch(() => null))?.mtimeMs ?? 0}`
-  if (clipFpsCache.has(key)) return clipFpsCache.get(key) ?? null
-  const fps = (await videoInfo(clip))?.fps ?? null
-  if (clipFpsCache.size > 5000) clipFpsCache.clear() // previews come and go; don't grow forever
-  clipFpsCache.set(key, fps)
-  return fps
+  return (await cachedVideoInfo(clip))?.fps ?? null
 }
 
 export async function videoDuration(file: string): Promise<number | null> {

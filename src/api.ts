@@ -125,6 +125,11 @@ export interface PreviewInfo {
   built: boolean
   /** The clip's frame rate (null if unknown), to pick a speed that fits the screen */
   fps: number | null
+  /**
+   * Video previews only: the clip is the whole video (a short one, no longer
+   * than all the slices together), not slices of it. Measured on the clip
+   */
+  whole?: boolean
 }
 
 /**
