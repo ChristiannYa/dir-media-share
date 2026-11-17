@@ -45,9 +45,12 @@ const loadedAspect = ref<number | null>(null)
 const boxAspect = computed(() => loadedAspect.value || props.aspect || 16 / 9)
 /**
  * `played`: enough of the video was watched to count as a view (Settings →
- * Most played → Counts as a view after); once per opening
+ * Most played → Counts as a view after); once per opening.
+ * `controls`: the controls were shown or hidden (also once at the start).
+ * The viewer shows and hides everything it puts over the video with them
+ * (MediaLightbox.vue, "What's over the photo / video")
  */
-const emit = defineEmits<{ played: [] }>()
+const emit = defineEmits<{ played: []; controls: [visible: boolean] }>()
 
 const root = ref<HTMLElement | null>(null)
 const video = ref<HTMLVideoElement | null>(null)
@@ -210,6 +213,8 @@ const {
   // stay up while the slider is dragged or a side is held, to show the position
   () => !scrubbing.value && !holding.value,
 )
+// the viewer's counter and lock timer follow them (MediaLightbox.vue)
+watch(controlsVisible, (visible) => emit('controls', visible), { immediate: true })
 
 function onScrubStart() {
   scrubbing.value = true
@@ -844,7 +849,8 @@ svg {
 
 .control {
   z-index: 3;
-  transition: opacity 0.25s;
+  /* the viewer fades its counter and lock timer the same (MediaLightbox.vue) */
+  transition: opacity var(--overlay-fade);
 }
 
 .player.controls-hidden .control {

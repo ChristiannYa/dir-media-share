@@ -15,22 +15,35 @@ import { haptic } from '@/utils/haptics'
  * The opened photo or video, full size, with a carousel of the folder's other
  * photos and videos under it to go through them: tap one, PageUp /
  * PageDown, or for photos the arrow keys and a sideways swipe (a
- * video's arrow keys and taps are its player's: skipping, seeking). A
- * counter at the top of the photo / video shows which item it is.
+ * video's arrow keys and taps are its player's: skipping, seeking).
  *
- * Photos also get a fullscreen button at their bottom right (videos have
- * their player's own). It and the counter are hidden until the middle of the
- * photo is tapped (on a video: any tap, with the player's controls). In
- * fullscreen, going to the next / previous skips the videos (a video's taps
- * and swipes are its player's) and loops from the last photo to the first;
- * the counter then counts the photos. They fade out like the player's
- * controls (Settings → Full screen).
+ * What's over the photo / video: a counter at its top middle (which item this
+ * is), the time left until the app locks at its top left (the top bar's
+ * timer, which the viewer covers), and on a photo a fullscreen button at its
+ * bottom right (in photo fullscreen a rotate button too; videos have their
+ * player's own buttons). In photo fullscreen they're pinned to the screen's
+ * corners instead, and going to the next / previous skips the videos (a
+ * video's taps and swipes are its player's) and loops from the last photo to
+ * the first; the counter then counts the photos. In video fullscreen the
+ * player shows its own lock timer, as one of its controls.
  *
- * The time left until the app locks (the top bar's timer, which the viewer
- * covers) sits at the top left of the photo / video, in photo fullscreen of
- * the screen. Any tap, mouse move or key shows it, and it fades like the
- * player's controls. In video fullscreen the player shows its own, with its
- * controls.
+ * ONE RULE for all of it: everything over the photo / video shows, hides and
+ * fades together, as one set of controls. Never give one of them its own
+ * timer or its own trigger: put it inside .lightbox-frame and hide it under
+ * .lightbox.overlay-off (style below), and it follows on its own.
+ *  - On a video, the player's controls decide (its `controls` event): they
+ *    show when it opens, a tap toggles them (on the sides after the
+ *    double-tap wait), a mouse move or key shows them, and they hide after
+ *    "Hide controls after" (Settings), not while the slider is dragged or a
+ *    side is held. The overlay follows that, nothing else.
+ *  - On a photo, the overlay's own `useAutoHide` decides, with the same
+ *    delay: in the carousel hidden at first and toggled by a tap in the
+ *    middle of the photo; in fullscreen shown by any tap, mouse move or key.
+ *  - They fade in --overlay-fade (tokens.css), the player's controls' fade.
+ *  - On a video they wear the player's colored glass (.theme-glass), like
+ *    its buttons; on a photo the dark glass of the photo's buttons.
+ * Only the close button and the carousel strip, outside the photo / video,
+ * always stay.
  */
 const props = defineProps<{
   entry: Entry | null
@@ -168,10 +181,10 @@ function rotate() {
 const sideways = computed(() => fullscreen.value && rotation.value % 180 !== 0)
 
 /**
- * The photo's buttons (fullscreen, rotate), and in fullscreen the counter.
- * They fade out after the player's "Hide controls after". In the carousel
- * they start hidden and a tap in the middle of the photo shows them; in
- * fullscreen any move, tap or key does
+ * On a photo: whether what's over it shows (the rule at the top). It fades
+ * out after the player's "Hide controls after". In the carousel it starts
+ * hidden and a tap in the middle of the photo toggles it; in fullscreen any
+ * move, tap or key shows it
  */
 const {
   visible: overlayVisible,
@@ -180,19 +193,19 @@ const {
   toggle: toggleOverlay,
 } = useAutoHide(() => settings.controlsHideDelayMs)
 hideOverlay()
-const buttonsHidden = computed(() => !overlayVisible.value)
-/** Fullscreen only: the counter and the mouse pointer go too */
-const overlayHidden = computed(() => fullscreen.value && !overlayVisible.value)
 
 /**
- * The lock timer: like the player's controls, it shows on any tap, mouse
- * move or key in the viewer (and when an item opens), and fades after
- * "Hide controls after". Not tied to the photo's buttons, which in the
- * carousel only a tap in the middle of the photo brings up
+ * On a video: whether the player's controls show (its `controls` event).
+ * A new player starts with them shown
  */
-const { visible: timerVisible, show: showTimer } = useAutoHide(
-  () => settings.controlsHideDelayMs,
+const videoControlsVisible = ref(true)
+
+/** What's over the photo / video shows: on a video with the player's controls, on a photo with its overlay */
+const overlayShown = computed(() =>
+  props.entry?.kind === 'video' ? videoControlsVisible.value : overlayVisible.value,
 )
+/** Photo fullscreen: the mouse pointer goes with them */
+const overlayHidden = computed(() => fullscreen.value && !overlayVisible.value)
 
 /** Which item this is: of all of them, or in photo fullscreen of the photos; '' if only one */
 const counterText = computed(() => {
@@ -204,8 +217,8 @@ const counterText = computed(() => {
     : ''
 })
 
+/** Photo fullscreen: any tap, mouse move or key shows what's over the photo (on a video the player handles its own) */
 function onActivity() {
-  showTimer()
   if (fullscreen.value) showOverlay()
 }
 
@@ -254,10 +267,10 @@ watch(
     // before the player is drawn, so it gets its part from the start
     const resume = takeViewerResume(path)
     videoResume.value = resume && props.entry?.kind === 'video' ? resume : null
-    // in the carousel each photo starts with its buttons hidden; the lock
-    // timer shows for a moment, so it's seen when the viewer opens
+    // in the carousel each photo starts with what's over it hidden; a video
+    // starts with it shown, like its new player's controls (the rule at the top)
     if (!fullscreen.value) hideOverlay()
-    showTimer()
+    videoControlsVisible.value = true
     await nextTick()
     if (resume && props.entry?.kind === 'image') resumePhoto(resume)
     if (fromStrip) return
@@ -375,9 +388,8 @@ onUnmounted(() => {
       class="lightbox force-glass"
       :class="{
         fullscreen,
-        'buttons-hidden': buttonsHidden,
+        'overlay-off': !overlayShown,
         'overlay-hidden': overlayHidden,
-        'timer-hidden': !timerVisible,
       }"
       @click.self="close"
       @pointermove="onActivity"
@@ -391,17 +403,20 @@ onUnmounted(() => {
       </div>
 
       <!-- :key: a new player (or image) for each item, starting fresh -->
-      <!-- a tap on a video shows the counter along with the player's own controls -->
-      <div
-        :key="entry.path"
-        class="lightbox-frame ring-frame"
-        @pointerdown="entry.kind === 'video' && showOverlay()"
-      >
+      <!-- everything in here over the photo / video shows and hides with its
+           controls: the rule at the top of the script -->
+      <div :key="entry.path" class="lightbox-frame ring-frame">
         <!-- which item this is, at the top middle of the photo / video (in
-             photo fullscreen: of the screen, counting the photos) -->
-        <p v-if="counterText" class="media-counter">{{ counterText }}</p>
-        <!-- time left until the app locks, at the top left; on a video in the
-             player's colored glass, like its buttons -->
+             photo fullscreen: of the screen, counting the photos); on a video
+             in the player's colored glass, like its buttons -->
+        <p
+          v-if="counterText"
+          class="media-counter"
+          :class="{ 'theme-glass': entry.kind === 'video' }"
+        >
+          {{ counterText }}
+        </p>
+        <!-- time left until the app locks, at the top left; glass like the counter -->
         <LockTimer class="media-timer" :class="{ 'theme-glass': entry.kind === 'video' }" />
         <img
           v-if="entry.kind === 'image'"
@@ -454,6 +469,7 @@ onUnmounted(() => {
           :resume="videoResume"
           :aspect="entry.width && entry.height ? entry.width / entry.height : null"
           @played="emit('viewed', entry)"
+          @controls="videoControlsVisible = $event"
         />
       </div>
 
@@ -642,10 +658,6 @@ onUnmounted(() => {
   margin: 0;
   padding: 0.3rem 0.75rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.45);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  color: #ddd;
   font-size: 0.85rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -670,7 +682,8 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* on a photo: dark, like the counter and the photo's buttons */
+/* the counter and the lock timer on a photo: dark glass, like the photo's buttons */
+.media-counter:not(.theme-glass),
 .media-timer:not(.theme-glass) {
   background: rgba(0, 0, 0, 0.45);
   -webkit-backdrop-filter: blur(6px);
@@ -678,8 +691,9 @@ onUnmounted(() => {
   color: #ddd;
 }
 
-/* on a video: .theme-glass (tokens.css) gives the glass; the text like the
-   player's time pill */
+/* on a video: .theme-glass (tokens.css) gives the glass, like the player's
+   buttons; the text like the player's time pill */
+.media-counter.theme-glass,
 .media-timer.theme-glass {
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
@@ -692,20 +706,23 @@ onUnmounted(() => {
   left: 1rem;
 }
 
+/* everything over the photo / video fades as one, with the player's
+   controls (the rule at the top of the script). Something new over the
+   photo / video goes in both lists */
 .fullscreen-btn,
 .media-counter,
 .media-timer {
   transition:
-    opacity 0.3s,
+    opacity var(--overlay-fade),
     background 0.15s,
     color 0.15s;
 }
 
 /* faded out: can't be clicked either (the tap that brings them back doesn't
    press the button) */
-.lightbox.buttons-hidden .fullscreen-btn,
-.lightbox.buttons-hidden .media-counter,
-.lightbox.timer-hidden .media-timer {
+.lightbox.overlay-off .fullscreen-btn,
+.lightbox.overlay-off .media-counter,
+.lightbox.overlay-off .media-timer {
   opacity: 0;
   pointer-events: none;
 }

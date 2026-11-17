@@ -110,6 +110,11 @@
   /* Thin light line along the top inside edge, like light catching the rim */
   --edge-shine: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
+  /* How long the controls over a photo / video take to fade in or out: the
+     player's controls (VideoPlayer.vue) and everything the viewer puts over
+     the photo / video (MediaLightbox.vue), so they all fade as one */
+  --overlay-fade: 0.25s;
+
   /* Font for the whole app: the default of Settings → Look → Font. Keep equal
      to APP_FONTS[APP_FONT] in src/constants.ts (files: styles/fonts.css) */
   --font-body: 'Comic Code', 'Shantell Sans', system-ui, sans-serif;
