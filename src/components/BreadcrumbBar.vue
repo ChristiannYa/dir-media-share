@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import AppModeButton from '@/components/AppModeButton.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
-import { appMode, toggleAppMode } from '@/appMode'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
 import { useContextHold } from '@/composables/useContextHold'
 import { useScrollHide } from '@/composables/useScrollHide'
@@ -105,7 +105,7 @@ onUnmounted(() => rowResize.disconnect())
     <!-- Row 1: app buttons (the file order is set in Settings → Sorting) -->
     <div class="actions">
       <!-- time left until the app locks (nothing if it never does) -->
-      <LockTimer class="bar-timer" />
+      <LockTimer class="bar-timer theme-glass" />
       <!-- selection mode: pick files to move or delete together (only with files to pick) -->
       <button
         v-if="canSelect"
@@ -125,18 +125,7 @@ onUnmounted(() => rowResize.disconnect())
         <span>Select</span>
       </button>
       <!-- app mode: goon records and shows plays, last viewed and the heatmap; dev neither -->
-      <button
-        type="button"
-        class="bar-btn mode-btn theme-glass"
-        :title="
-          appMode === 'goon'
-            ? 'Goon mode: views, last viewed and most watched parts are recorded and shown. Tap for dev mode'
-            : 'Dev mode: nothing is recorded or shown. Tap for goon mode'
-        "
-        @click="toggleAppMode"
-      >
-        {{ appMode === 'goon' ? 'Goon' : 'Dev' }}
-      </button>
+      <AppModeButton class="theme-glass" />
       <!-- pushes settings and shutdown to the right end -->
       <span class="bar-spacer" />
       <!-- menu of the open folder: no button, opened from its crumb below;
@@ -434,8 +423,13 @@ onUnmounted(() => rowResize.disconnect())
 }
 
 /* the lock countdown, first on the left, in the buttons' color */
+/* a pill in the same glass as the app mode beside it and the alphabet bar's
+   current letter (.theme-glass, tokens.css); amber in the last minute
+   (LockTimer.vue's .ending wins over this color) */
 .bar-timer {
-  color: var(--bar-btn-color);
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  color: #fff;
   font-size: 0.8rem;
 }
 
@@ -462,21 +456,6 @@ onUnmounted(() => rowResize.disconnect())
 /* on while selection mode is */
 .select-btn.active {
   color: #6ea0ff;
-}
-
-/* the app mode: a small pill with the same glass as the alphabet bar's current
-   letter (.theme-glass, tokens.css) */
-/* .bar-btn (below) sets no padding and clears background and border: the
-   double class wins over it, so the glass is set back here */
-.bar-btn.mode-btn {
-  background: var(--theme-glass);
-  border: 1px solid var(--edge);
-  padding: 0.1rem 0.55rem;
-  border-radius: 999px;
-  color: #fff;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
 }
 
 .settings-btn:hover {

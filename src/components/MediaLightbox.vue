@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import AppModeButton from '@/components/AppModeButton.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import NightSky from '@/components/NightSky.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
@@ -17,9 +18,13 @@ import { haptic } from '@/utils/haptics'
  * PageDown, or for photos the arrow keys and a sideways swipe (a
  * video's arrow keys and taps are its player's: skipping, seeking).
  *
+ * Closed with Escape (useLightbox.ts) or a tap on the dimmed background
+ * around the photo / video: there's no close button.
+ *
  * What's over the photo / video: a counter at its top middle (which item this
- * is), the time left until the app locks at its top left (the top bar's
- * timer, which the viewer covers), and on a photo a fullscreen button at its
+ * is), at its top left the time left until the app locks and the app mode
+ * (.media-status: both from the top bar, which the viewer covers; a tap on
+ * the mode switches it), and on a photo a fullscreen button at its
  * bottom right (in photo fullscreen a rotate button too; videos have their
  * player's own buttons). In photo fullscreen they're pinned to the screen's
  * corners instead, and going to the next / previous skips the videos (a
@@ -42,8 +47,7 @@ import { haptic } from '@/utils/haptics'
  *  - They fade in --overlay-fade (tokens.css), the player's controls' fade.
  *  - On a video they wear the player's colored glass (.theme-glass), like
  *    its buttons; on a photo the dark glass of the photo's buttons.
- * Only the close button and the carousel strip, outside the photo / video,
- * always stay.
+ * Only the carousel strip, outside the photo / video, always stays.
  */
 const props = defineProps<{
   entry: Entry | null
@@ -398,10 +402,6 @@ onUnmounted(() => {
       <!-- photo fullscreen: the night sky around the photo instead of black -->
       <NightSky v-if="fullscreen" ignore-pause />
 
-      <div class="top-buttons">
-        <button class="round-btn" aria-label="Close" @click="close">✕</button>
-      </div>
-
       <!-- :key: a new player (or image) for each item, starting fresh -->
       <!-- everything in here over the photo / video shows and hides with its
            controls: the rule at the top of the script -->
@@ -416,8 +416,13 @@ onUnmounted(() => {
         >
           {{ counterText }}
         </p>
-        <!-- time left until the app locks, at the top left; glass like the counter -->
-        <LockTimer class="media-timer" :class="{ 'theme-glass': entry.kind === 'video' }" />
+        <!-- at the top left: the time left until the app locks and the app
+             mode (both in the top bar, which the viewer covers); glass like
+             the counter -->
+        <div class="media-status">
+          <LockTimer class="media-pill" :class="{ 'theme-glass': entry.kind === 'video' }" />
+          <AppModeButton class="media-pill" :class="{ 'theme-glass': entry.kind === 'video' }" />
+        </div>
         <img
           v-if="entry.kind === 'image'"
           :src="fileUrl(entry.path)"
@@ -562,15 +567,6 @@ onUnmounted(() => {
 }
 
 /* ── Buttons ── */
-.top-buttons {
-  position: absolute;
-  z-index: 5; /* stay above the video player */
-  top: 1.25rem;
-  right: 1.5rem;
-  display: flex;
-  gap: 0.5rem;
-}
-
 .round-btn {
   background: #222;
   border: 1px solid var(--edge);
@@ -670,22 +666,43 @@ onUnmounted(() => {
   top: 1rem;
 }
 
-/* the lock countdown: a pill at the top left of the photo / video */
-.media-timer {
+/* the lock countdown and the app mode, side by side at the top left of the
+   photo / video */
+.media-status {
   position: absolute;
   z-index: 5;
   top: 0.6rem;
   left: 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* both the same pill (the double class wins over AppModeButton.vue's own
+   size). The timer lets taps through to the photo / video; the mode is tapped */
+.media-status .media-pill {
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
   font-size: 0.8rem;
+}
+
+.media-status .lock-timer {
   pointer-events: none;
 }
 
-/* the counter and the lock timer on a photo: dark glass, like the photo's buttons */
+/* photo fullscreen: the top left of the screen */
+.lightbox.fullscreen .media-status {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+}
+
+/* the counter, the lock timer and the mode on a photo: dark glass, like the
+   photo's buttons */
 .media-counter:not(.theme-glass),
-.media-timer:not(.theme-glass) {
+.media-status .media-pill:not(.theme-glass) {
   background: rgba(0, 0, 0, 0.45);
+  border: none;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   color: #ddd;
@@ -694,24 +711,19 @@ onUnmounted(() => {
 /* on a video: .theme-glass (tokens.css) gives the glass, like the player's
    buttons; the text like the player's time pill */
 .media-counter.theme-glass,
-.media-timer.theme-glass {
+.media-status .media-pill.theme-glass {
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
-/* photo fullscreen: the top left of the screen */
-.lightbox.fullscreen .media-timer {
-  position: fixed;
-  top: 1rem;
-  left: 1rem;
-}
-
 /* everything over the photo / video fades as one, with the player's
    controls (the rule at the top of the script). Something new over the
-   photo / video goes in both lists */
+   photo / video goes in both lists (or inside .media-status). The pills
+   fade, not .media-status: a parent's opacity under 1 cuts its children
+   off from what's behind, so their glass would lose its blur mid-fade */
 .fullscreen-btn,
 .media-counter,
-.media-timer {
+.media-status > * {
   transition:
     opacity var(--overlay-fade),
     background 0.15s,
@@ -719,10 +731,10 @@ onUnmounted(() => {
 }
 
 /* faded out: can't be clicked either (the tap that brings them back doesn't
-   press the button) */
+   press a button) */
 .lightbox.overlay-off .fullscreen-btn,
 .lightbox.overlay-off .media-counter,
-.lightbox.overlay-off .media-timer {
+.lightbox.overlay-off .media-status > * {
   opacity: 0;
   pointer-events: none;
 }
@@ -839,7 +851,6 @@ onUnmounted(() => {
 }
 
 /* only the button at the photo's bottom right leaves fullscreen */
-.lightbox.fullscreen .top-buttons,
 .lightbox.fullscreen .strip {
   display: none;
 }
