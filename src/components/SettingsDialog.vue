@@ -591,14 +591,24 @@ async function done() {
   color: #fff;
 }
 
+/* the number (or "!") centered in its pill, both ways: a single digit in the
+   min-width used to sit to the left */
 .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
   min-width: 1.1rem;
+  height: 1.1rem;
   padding: 0 0.3rem;
   border-radius: 999px;
   background: #2d6cdf;
   color: #fff;
   font-size: 0.68rem;
-  line-height: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-align: center;
 }
 
 .badge.bad {
