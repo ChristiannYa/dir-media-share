@@ -404,8 +404,11 @@ function revealCard(path: string): boolean {
  * A video started playing in the viewer, or a photo loaded there: saved on the
  * server as viewed (it and every folder above it) and counted as a play, and
  * shown in its menu right away, on both its cards (grid and "Most played").
- * The folders' cards and the section's order follow when they load again
- * (reordering it under the viewer would make the carousel jump).
+ * Once the server has counted it, "Most played" loads again, so its counts,
+ * its order and what's in it (a video that just made it in, a folder's new
+ * total) are up to date under the viewer. The carousel goes by the grid, not
+ * by the section, so it doesn't move. The grid's folder cards follow when the
+ * folder loads again.
  */
 async function onViewed(entry: Entry) {
   // dev mode: nothing is recorded (src/appMode.ts)
@@ -423,7 +426,10 @@ async function onViewed(entry: Entry) {
   try {
     const result = await markViewed(entry.path)
     // null: the server didn't record it (switched to dev mode meanwhile)
-    if (result.viewed !== null && result.plays !== null) set(result.viewed, result.plays)
+    if (result.viewed !== null && result.plays !== null) {
+      set(result.viewed, result.plays)
+      void loadMostPlayed()
+    }
   } catch (e) {
     console.warn(e)
   }
