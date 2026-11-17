@@ -184,6 +184,8 @@ export const API = {
   editFile: '/api/file/edit',
   /** The most played videos and photos inside a folder (subfolders included): ?path=&limit= */
   mostPlayed: '/api/most-played',
+  /** Hearted videos and photos inside a folder (subfolders included), shuffled: ?path=&limit= */
+  hearted: '/api/hearted',
   /** Sets how many times a video / photo was viewed (POST): ?path=&count= */
   setPlays: '/api/plays',
   /** A video was played in the viewer: it and its folders get "last viewed" = now, and one more play (POST): ?path= */
@@ -403,6 +405,20 @@ export const MOST_PLAYED_COUNT = 10
 export const MOST_PLAYED_TITLE = 'Most played'
 /** Shown in that section while nothing in the folder was played yet */
 export const MOST_PLAYED_EMPTY_TEXT = 'Nothing played here yet'
+/**
+ * How many hearted videos / photos the "Hearted" section (under "Most
+ * played", only where it lists videos and photos: .bin/<x>/<y>) shows (default; see Settings → Most played).
+ * 0 = no section
+ */
+export const HEARTED_COUNT = 6
+/** How many hearted ones are fetched at once: the section shows HEARTED_COUNT, the rest get swapped in */
+export const HEARTED_POOL = 40
+/** Every this many ms, a full "Hearted" section swaps one random card for one it doesn't show */
+export const HEARTED_SWAP_MS = 5000
+/** Title of that section */
+export const HEARTED_TITLE = 'Hearted'
+/** Shown in that section while nothing in the folder is hearted */
+export const HEARTED_EMPTY_TEXT = 'Nothing hearted here yet'
 /**
  * Seconds of a video that have to be watched in the viewer (or fullscreen)
  * before it counts as a view and as "last viewed" (default; see Settings →

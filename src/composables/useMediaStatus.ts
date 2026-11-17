@@ -175,6 +175,7 @@ export function useMediaStatus() {
   /** Forget everything about the previous folder */
   function reset() {
     extra = new Set()
+    extraGroups = new Map()
     thumbFailed.value = new Set()
     near.value = new Set()
     visible.value = new Set()
@@ -191,8 +192,10 @@ export function useMediaStatus() {
 
   /** Paths of the cards in the current listing */
   let listed = new Set<string>()
-  /** Paths of the cards shown outside the listing (the "Most played" section) */
+  /** Keys of the cards shown outside the listing (the "Most played" and "Hearted" sections) */
   let extra = new Set<string>()
+  /** The same, per section ("most-played", "hearted"): `extra` is all of them together */
+  let extraGroups = new Map<string, Set<string>>()
 
   /** Every image and video in a new listing starts out loading */
   function markLoading(entries: Entry[]) {
@@ -226,14 +229,20 @@ export function useMediaStatus() {
    * The cards shown outside the listing changed (the "Most played" section
    * loaded): new ones start loading, like a listing's; ones already shown
    * keep their state. `keyOf` gives each card's own key (GalleryCard's
-   * statusKey), so a file shown in the grid too has a separate state there
+   * statusKey), so a file shown in the grid too has a separate state there.
+   * Each section (`group`) replaces only its own cards
    */
-  function setExtra(entries: Entry[], keyOf: (entry: Entry) => string = (e) => e.path) {
+  function setExtra(
+    entries: Entry[],
+    keyOf: (entry: Entry) => string = (e) => e.path,
+    group = 'most-played',
+  ) {
     const added = entries
       .filter((e) => isMediaEntry(e) && !listed.has(keyOf(e)) && !extra.has(keyOf(e)))
       .map(keyOf)
     if (added.length) loading.value = new Set([...loading.value, ...added])
-    extra = new Set(entries.map(keyOf))
+    extraGroups.set(group, new Set(entries.map(keyOf)))
+    extra = new Set([...extraGroups.values()].flatMap((keys) => [...keys]))
   }
 
   // ── Events ──

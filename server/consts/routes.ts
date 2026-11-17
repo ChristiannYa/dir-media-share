@@ -70,6 +70,11 @@ export const ROUTE_FAVORITE = '/api/favorite'
  * played first, as listing entries (server/plays.ts): GET ?path=&limit=&kind=media|folders
  */
 export const ROUTE_MOST_PLAYED = '/api/most-played'
+/**
+ * The hearted videos and photos inside a folder (subfolders included), in
+ * random order, as listing entries (server/favorites.ts): GET ?path=&limit=
+ */
+export const ROUTE_HEARTED = '/api/hearted'
 /** Sets how many times a video / photo was viewed (the edit dialog): POST ?path=&count= */
 export const ROUTE_SET_PLAYS = '/api/plays'
 /** A video was played / photo shown in the viewer: it and its folders get "last viewed" = now (server/views.ts), and its play count goes up: POST ?path= */

@@ -35,6 +35,7 @@ import {
   ROUTE_JOB_EVENTS,
   ROUTE_LOGIN,
   ROUTE_LOGOUT,
+  ROUTE_HEARTED,
   ROUTE_MOST_PLAYED,
   ROUTE_MOVE_FILE,
   ROUTE_NUMBER_FILES,
@@ -88,6 +89,7 @@ import { getHeatmap, postHeatmap } from './handlers/heatmap.ts'
 import { info } from './handlers/info.ts'
 import { cancelJob, jobEvents } from './handlers/jobEvents.ts'
 import { login, logout, session } from './handlers/login.ts'
+import { hearted } from './handlers/hearted.ts'
 import { mostPlayed } from './handlers/mostPlayed.ts'
 import { previewHandler } from './handlers/preview.ts'
 import {
@@ -136,6 +138,7 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_FAVORITE]: { POST: favoriteFile },
   [ROUTE_VIEWED]: { POST: viewedFile },
   [ROUTE_MOST_PLAYED]: { GET: mostPlayed },
+  [ROUTE_HEARTED]: { GET: hearted },
   [ROUTE_SET_PLAYS]: { POST: setPlays },
   [ROUTE_HEATMAP]: { GET: getHeatmap, POST: postHeatmap },
   [ROUTE_DISCARD_UPLOAD]: { POST: discardUpload },

@@ -38,6 +38,12 @@ export function isFavorite(rel: string): boolean {
   return favorites.has(rel)
 }
 
+/** The hearted files inside the folder `folderRel` (subfolders included) */
+export function favoritesIn(folderRel: string): string[] {
+  const prefix = folderRel ? `${folderRel}/` : ''
+  return [...favorites].filter((rel) => rel.startsWith(prefix))
+}
+
 /** Adds or removes the heart of `rel` and saves */
 export async function setFavorite(rel: string, on: boolean): Promise<void> {
   if (on === favorites.has(rel)) return

@@ -16,12 +16,16 @@ import MediaLightbox from '@/components/MediaLightbox.vue'
 import NightSky from '@/components/NightSky.vue'
 import SelectionBar from '@/components/SelectionBar.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
-import { fetchMostPlayed, markViewed, setFavorite, shutdownServer } from '@/api'
+import { fetchHearted, fetchMostPlayed, markViewed, setFavorite, shutdownServer } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import {
   ALPHABET_FOLDERS,
   EMPTY_FOLDER_TEXT,
   GRID_COLUMN_WIDTH,
+  HEARTED_EMPTY_TEXT,
+  HEARTED_POOL,
+  HEARTED_SWAP_MS,
+  HEARTED_TITLE,
   MOST_PLAYED_EMPTY_TEXT,
   MOST_PLAYED_PARENTS,
   MOST_PLAYED_TITLE,
@@ -57,14 +61,17 @@ const { rootFolderName, currentPath, entries, breadcrumbs, navigate, reload, ini
     media.reset()
     mostPlayed.value = []
     mostPlayedLoaded.value = false
+    clearHearted()
   },
   onEntries: (list) => {
     media.markLoading(list)
     void loadMostPlayed()
+    void loadHearted()
   },
   onReload: (list) => {
     media.update(list)
     void loadMostPlayed()
+    void loadHearted()
   },
 })
 
@@ -135,7 +142,94 @@ watch(() => settings.mostPlayedCount, () => void loadMostPlayed())
 function clearMostPlayed() {
   mostPlayed.value = []
   mostPlayedLoaded.value = false
-  media.setExtra([])
+  media.setExtra([], mostPlayedKey, 'most-played')
+}
+
+// ── Hearted ──
+// Under "Most played", only where it lists videos and photos (.bin/<x>/<y>,
+// not .bin/<x>, where it lists folders): random hearted videos and photos
+// (subfolders included). When it's full and there are more, one card is
+// swapped for another every HEARTED_SWAP_MS: the old one shrinks away and the
+// new one grows in its place. Tapping one leads to its card, like "Most played"
+
+const hearted = ref<Entry[]>([])
+/** Hearted ones fetched but not shown: what gets swapped in */
+let heartedPool: Entry[] = []
+/** The section's list for the open folder has arrived (even if empty) */
+const heartedLoaded = ref(false)
+/** The section's cards keep their own loading / preview state, apart from the other cards of the same file */
+const heartedKey = (entry: Entry) => `hearted:${entry.path}`
+/** Only the latest request may fill the section */
+let heartedRequest = 0
+
+function syncHeartedExtra() {
+  media.setExtra(hearted.value, heartedKey, 'hearted')
+}
+
+async function loadHearted() {
+  const request = ++heartedRequest
+  const path = currentPath.value
+  const count = settings.heartedCount
+  // only where "Most played" lists videos and photos (.bin/<x>/<y>), not folders
+  if (mostPlayedKind.value !== 'media' || count <= 0) return clearHearted()
+  try {
+    const list = await fetchHearted(path, Math.max(count, HEARTED_POOL))
+    if (request !== heartedRequest || currentPath.value !== path) return
+    hearted.value = list.slice(0, count)
+    heartedPool = list.slice(count)
+    heartedLoaded.value = true
+    syncHeartedExtra()
+  } catch (e) {
+    console.warn(e)
+  }
+}
+
+function clearHearted() {
+  hearted.value = []
+  heartedPool = []
+  heartedLoaded.value = false
+  media.setExtra([], heartedKey, 'hearted')
+}
+
+// a new count (Settings) shows right away
+watch(() => settings.heartedCount, () => void loadHearted())
+
+/** A full section swaps one random card for a random one it doesn't show */
+function swapHearted() {
+  if (heartedPool.length === 0 || hearted.value.length < settings.heartedCount) return
+  // not while the tab is hidden, the viewer is open or in selection mode
+  if (document.hidden || selected.value || selecting.value) return
+  const slot = Math.floor(Math.random() * hearted.value.length)
+  const from = Math.floor(Math.random() * heartedPool.length)
+  const incoming = heartedPool[from]
+  const outgoing = hearted.value[slot]
+  if (!incoming || !outgoing) return
+  heartedPool[from] = outgoing
+  hearted.value[slot] = incoming
+  syncHeartedExtra()
+}
+
+let heartedSwapTimer: ReturnType<typeof setInterval> | undefined
+
+/** A heart was added / removed elsewhere (the grid's card): the section follows */
+function syncHeartedWith(entry: Entry, on: boolean) {
+  const prefix = currentPath.value ? `${currentPath.value}/` : ''
+  if (mostPlayedKind.value !== 'media' || !heartedLoaded.value || !entry.path.startsWith(prefix)) {
+    return
+  }
+  const shown = hearted.value.findIndex((e) => e.path === entry.path)
+  if (!on) {
+    heartedPool = heartedPool.filter((e) => e.path !== entry.path)
+    if (shown >= 0) {
+      const next = heartedPool.splice(Math.floor(Math.random() * heartedPool.length), 1)[0]
+      if (next) hearted.value[shown] = next
+      else hearted.value.splice(shown, 1)
+    }
+  } else if (shown < 0 && !heartedPool.some((e) => e.path === entry.path)) {
+    if (hearted.value.length < settings.heartedCount) hearted.value.push({ ...entry })
+    else heartedPool.push({ ...entry })
+  }
+  syncHeartedExtra()
 }
 
 // ── Switching the app mode: "Most played" grows in / shrinks away ──
@@ -413,7 +507,7 @@ function revealCard(path: string): boolean {
 async function onViewed(entry: Entry) {
   // dev mode: nothing is recorded (src/appMode.ts)
   if (!recordsVideoData.value) return
-  const copies = [entry, ...entries.value, ...mostPlayed.value].filter(
+  const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
     (e) => e.path === entry.path,
   )
   const set = (viewed: number, plays: number) => {
@@ -436,15 +530,17 @@ async function onViewed(entry: Entry) {
 }
 
 async function toggleFavorite(entry: Entry, on: boolean) {
-  // the same file can have a card in the grid and in "Most played": both change
-  const copies = [entry, ...entries.value, ...mostPlayed.value].filter(
+  // the same file can have a card in the grid, "Most played" and "Hearted": all change
+  const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
     (e) => e.path === entry.path,
   )
   for (const e of copies) e.favorite = on
+  syncHeartedWith(entry, on)
   try {
     await setFavorite(entry.path, on)
   } catch (e) {
     for (const c of copies) c.favorite = !on
+    syncHeartedWith(entry, !on)
     console.warn(e)
   }
 }
@@ -504,10 +600,12 @@ onMounted(() => {
   void loadSharedSettings()
   void start()
   window.addEventListener('keydown', onKeydown)
+  heartedSwapTimer = setInterval(swapHearted, HEARTED_SWAP_MS)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   clearTimeout(revealTimer)
+  clearInterval(heartedSwapTimer)
 })
 </script>
 
@@ -571,6 +669,35 @@ onUnmounted(() => {
               @changed="refresh"
             />
           </div>
+
+          <!-- random hearted videos and photos of this folder and its subfolders -->
+          <template v-if="heartedLoaded && settings.heartedCount > 0">
+            <h2 class="section-title">{{ HEARTED_TITLE }}</h2>
+            <p v-if="hearted.length === 0" class="most-played-empty">
+              {{ HEARTED_EMPTY_TEXT }}
+            </p>
+            <div v-else class="grid hearted">
+              <!-- one slot per position: a swap shrinks the old card away, then
+                   grows the new one in its place (no wrapper: the cards stay
+                   the masonry grid's items) -->
+              <template v-for="(entry, i) in hearted" :key="i">
+                <Transition name="hearted-swap" mode="out-in">
+                  <GalleryCard
+                    :key="heartedKey(entry)"
+                    :status-key="heartedKey(entry)"
+                    :entry="entry"
+                    :selecting="false"
+                    :selected="false"
+                    link-only
+                    @open="openFromMostPlayed"
+                    @favorite="toggleFavorite"
+                    @changed="refresh"
+                  />
+                </Transition>
+              </template>
+            </div>
+          </template>
+
           <h2 class="section-title">All</h2>
         </div>
       </section>
@@ -787,6 +914,36 @@ onUnmounted(() => {
 
 .column.fixed .most-played .grid {
   grid-template-columns: repeat(var(--most-played-columns), minmax(0, 1fr));
+}
+
+/* ── Hearted: the swap ── */
+/* the card's root gets App's scope attribute too, so these beat GalleryCard's
+   own `.card { transition: transform 0.15s }`. Scaling doesn't change the
+   layout, so the grid around the slot stays put */
+.hearted .card.hearted-swap-leave-active {
+  transition:
+    transform 0.28s cubic-bezier(0.5, 0, 0.9, 0.4),
+    opacity 0.28s ease-in;
+}
+
+.hearted .card.hearted-swap-enter-active {
+  transition:
+    transform 0.38s cubic-bezier(0.2, 0.9, 0.3, 1.25),
+    opacity 0.25s ease-out;
+}
+
+.hearted .card.hearted-swap-leave-to,
+.hearted .card.hearted-swap-enter-from {
+  transform: scale(0);
+  opacity: 0;
+}
+
+/* reduced motion: only a fade */
+@media (prefers-reduced-motion: reduce) {
+  .hearted .card.hearted-swap-leave-to,
+  .hearted .card.hearted-swap-enter-from {
+    transform: none;
+  }
 }
 
 /* ── Empty state ── */

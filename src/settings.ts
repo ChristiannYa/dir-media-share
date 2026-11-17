@@ -19,6 +19,7 @@ import {
   GRID_COLUMNS,
   HAPTIC_MS,
   HAPTICS,
+  HEARTED_COUNT,
   HOLD_SEEK_DELAY_MS,
   HOLD_SEEK_GAIN,
   HOLD_SEEK_MAX_SPEED,
@@ -53,6 +54,7 @@ import {
 export const DEFAULT_SETTINGS = {
   sortBy: SORT_BY as SortBy,
   mostPlayedCount: MOST_PLAYED_COUNT,
+  heartedCount: HEARTED_COUNT,
   viewAfterSeconds: VIEW_AFTER_SECONDS,
   gridColumns: GRID_COLUMNS,
   loadingDots: LOADING_DOTS,
@@ -167,6 +169,15 @@ export const SETTING_GROUPS: Array<FieldGroup<SettingField>> = [
         type: 'number',
         min: 0,
         max: 100,
+        step: 1,
+      },
+      {
+        key: 'heartedCount',
+        label: 'Hearted shown',
+        help: 'A section under "Most played", in the folders where it lists videos and photos (e.g. .bin/cinema/annaralphs, not .bin/cinema): random hearted videos and photos (subfolders included). When there are more than fit, one is swapped for another every few seconds. Tapping one takes you to its card. 0 = no section',
+        type: 'number',
+        min: 0,
+        max: 50,
         step: 1,
       },
       {

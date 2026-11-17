@@ -665,6 +665,13 @@ export async function fetchMostPlayed(
   return (await res.json()) as Entry[]
 }
 
+/** Up to `limit` hearted videos and photos inside a folder (subfolders included), in random order */
+export async function fetchHearted(path: string, limit: number): Promise<Entry[]> {
+  const res = await fetch(`${API.hearted}?path=${encodeURIComponent(path)}&limit=${limit}`)
+  if (!res.ok) throw new Error(`Loading the hearted failed (${res.status})`)
+  return (await res.json()) as Entry[]
+}
+
 /** How many times each part of a video was watched (HEATMAP_BINS numbers), or null if never */
 export async function fetchHeatmap(path: string, signal?: AbortSignal): Promise<number[] | null> {
   const res = await fetch(`${API.heatmap}?path=${encodeURIComponent(path)}`, { signal })
