@@ -6,7 +6,7 @@ import LoadingDots from '@/components/LoadingDots.vue'
 import PreviewVideo from '@/components/PreviewVideo.vue'
 import { fileUrl, folderPreviewUrl, previewGeneration, previewUrl, thumbUrl } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { THEMED_NAME_PARENTS, TS_BADGE_TITLE } from '@/constants'
+import { REVEAL_MS, THEMED_NAME_PARENTS, TS_BADGE_TITLE } from '@/constants'
 import { ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
@@ -38,6 +38,8 @@ const props = defineProps<{
    * quality, duration, size, heart or folder counts on the preview
    */
   viewsOnly?: boolean
+  /** The app just led you here (App.vue revealCard): it flashes for REVEAL_MS */
+  revealing?: boolean
 }>()
 const emit = defineEmits<{
   open: [entry: Entry]
@@ -195,7 +197,8 @@ onUnmounted(() => sizeObserver.disconnect())
 
 function onImageLoad(e: Event) {
   const img = e.target as HTMLImageElement
-  if (img.naturalWidth && img.naturalHeight) loadedRatio.value = img.naturalWidth / img.naturalHeight
+  if (img.naturalWidth && img.naturalHeight)
+    loadedRatio.value = img.naturalWidth / img.naturalHeight
   onMediaLoad(trackKey.value)
 }
 
@@ -204,6 +207,30 @@ function onImageLoad(e: Event) {
  * glow in the theme colors pulses around the card (two beats, then gone)
  */
 const pulsing = ref(false)
+
+/**
+ * The reveal's colors (the .reveal style): one soft blob per theme color
+ * (REVEAL_BLOBS in the CSS: purple, blue, cyan, green, pink), fading into each
+ * other, each wandering on its own random path. Picked anew each time the
+ * card is revealed: REVEAL_STOPS spots per blob, which it glides through
+ * (--drift-0 … --drift-3, the background-position of every layer)
+ */
+const REVEAL_BLOBS = 5
+const REVEAL_STOPS = 4
+
+function revealDrift(): Record<string, string> {
+  const style: Record<string, string> = { '--reveal-ms': `${REVEAL_MS}ms` }
+  const spot = () => `${Math.round(Math.random() * 100)}%`
+  for (let stop = 0; stop < REVEAL_STOPS; stop++) {
+    const blobs = Array.from({ length: REVEAL_BLOBS }, () => `${spot()} ${spot()}`)
+    // the last layer, the soft base under the blobs, stays put
+    style[`--drift-${stop}`] = [...blobs, '0 0'].join(', ')
+  }
+  return style
+}
+
+/** The reveal's random paths: new ones each time `revealing` turns on */
+const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined))
 </script>
 
 <template>
@@ -232,6 +259,13 @@ const pulsing = ref(false)
   >
     <!-- a new preview just played: a glow in the theme colors pulses around the card -->
     <span v-if="pulsing" class="pulse" aria-hidden="true" @animationend="pulsing = false" />
+    <!-- the app led you here: a halo and a thin ring, both of the theme
+         colors wandering and fading into each other, as they beat (App.vue
+         revealCard). The same random paths on both (revealStyle) -->
+    <template v-if="revealing">
+      <span class="reveal reveal-halo" :style="revealStyle" aria-hidden="true" />
+      <span class="reveal reveal-ring" :style="revealStyle" aria-hidden="true" />
+    </template>
     <!-- selection mode: a faint blue layer over picked files -->
     <span v-if="selecting && selected" class="select-tint" aria-hidden="true" />
     <!-- selection mode: files get a check circle (their menu can't be opened meanwhile) -->
@@ -241,7 +275,9 @@ const pulsing = ref(false)
       :class="{ on: selected }"
       aria-hidden="true"
     >
-      <svg v-if="selected" viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" /></svg>
+      <svg v-if="selected" viewBox="0 0 24 24">
+        <path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" />
+      </svg>
     </span>
     <LoadingDots
       v-if="isLoading(entry, trackKey) && settings.loadingDots > 0"
@@ -323,11 +359,7 @@ const pulsing = ref(false)
     </div>
 
     <!-- Image -->
-    <div
-      v-else-if="entry.kind === 'image'"
-      class="media-wrap"
-      :style="{ aspectRatio: mediaRatio }"
-    >
+    <div v-else-if="entry.kind === 'image'" class="media-wrap" :style="{ aspectRatio: mediaRatio }">
       <div v-if="isThumbLoading(trackKey)" class="placeholder" />
       <img
         :src="fileUrl(entry.path)"
@@ -501,12 +533,7 @@ const pulsing = ref(false)
       @changed="emit('changed')"
       @renamed="emit('changed')"
     />
-    <FileMenu
-      v-else-if="!linkOnly"
-      ref="fileMenu"
-      :entry="entry"
-      @changed="emit('changed')"
-    />
+    <FileMenu v-else-if="!linkOnly" ref="fileMenu" :entry="entry" @changed="emit('changed')" />
   </div>
 </template>
 
@@ -675,6 +702,142 @@ const pulsing = ref(false)
 @keyframes card-glow {
   50% {
     opacity: 0.6;
+  }
+}
+
+/* ── Reveal ──
+   The app led you to this card (App.vue revealCard: a "Most played" card
+   opened, a folder just created). Like the preview pulse, but stronger and
+   longer (REVEAL_MS): a wide blurred halo and a thin ring just outside the
+   card beat twice and fade, while the card itself bounces (App.vue).
+   Their colors: a soft blob of each theme color, fading into the others,
+   each wandering on a random path picked anew each time (revealDrift in the
+   script: --drift-0 … --drift-3, a position for each layer), over a soft
+   base so no part is ever empty. Behind the card (z-index -2), so only
+   what's past its edges shows */
+.reveal {
+  position: absolute;
+  z-index: -2;
+  /* REVEAL_BLOBS (script) blobs, then the base: keep the counts in step */
+  background:
+    radial-gradient(closest-side, var(--theme-purple), transparent),
+    radial-gradient(closest-side, var(--theme-blue), transparent),
+    radial-gradient(closest-side, var(--theme-cyan), transparent),
+    radial-gradient(closest-side, var(--theme-green), transparent),
+    radial-gradient(closest-side, var(--theme-pink), transparent),
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--theme-purple) 60%, transparent),
+      color-mix(in oklab, var(--theme-cyan) 60%, transparent)
+    );
+  background-size:
+    75% 75%,
+    75% 75%,
+    75% 75%,
+    75% 75%,
+    75% 75%,
+    100% 100%;
+  background-repeat: no-repeat;
+  background-position: var(--drift-0);
+  opacity: 0;
+  pointer-events: none;
+  animation:
+    card-reveal var(--reveal-ms) ease-in-out,
+    reveal-drift var(--reveal-ms) ease-in-out;
+}
+
+/* the blobs glide from spot to spot (the spots: revealDrift in the script) */
+@keyframes reveal-drift {
+  0% {
+    background-position: var(--drift-0);
+  }
+  33% {
+    background-position: var(--drift-1);
+  }
+  66% {
+    background-position: var(--drift-2);
+  }
+  100% {
+    background-position: var(--drift-3);
+  }
+}
+
+.reveal-halo {
+  inset: calc(-1 * var(--card-outset) - 10px);
+  border-radius: calc(var(--card-radius) + var(--card-outset) + 10px);
+  filter: blur(22px) saturate(calc(1.4 * var(--ring-vibrancy, 1)));
+}
+
+/* a thin 2px band right against the card's ring and glass border (the mask
+   cuts out the middle). It doesn't swell like the halo: scaled, it would pull
+   away from the card and leave a gap; it bounces with the card instead */
+.reveal-ring {
+  inset: calc(-1 * var(--card-outset) - 2px);
+  padding: 2px;
+  border-radius: calc(var(--card-radius) + var(--card-outset) + 2px);
+  filter: saturate(calc(1.4 * var(--ring-vibrancy, 1)));
+  /* its own beats (no swelling), the same drift */
+  animation-name: card-reveal-ring, reveal-drift;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+
+@keyframes card-reveal {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  12% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  30% {
+    opacity: 0.55;
+    transform: scale(1.02);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+  65% {
+    opacity: 0.55;
+    transform: scale(1.02);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* the ring: the same beats, without the swelling */
+@keyframes card-reveal-ring {
+  0% {
+    opacity: 0;
+  }
+  12%,
+  45% {
+    opacity: 1;
+  }
+  30%,
+  65% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* reduced motion: the colors glow and fade where they start, nothing swells
+   or wanders. .reveal-ring listed too, its own animation-name would win otherwise */
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.reveal-ring {
+    animation: card-glow var(--reveal-ms) ease-in-out;
   }
 }
 
@@ -1063,9 +1226,7 @@ const pulsing = ref(false)
     rgba(255, 255, 255, calc(0.22 * var(--glass-opacity) * var(--badge-glass-ratio))),
     rgba(255, 255, 255, calc(0.04 * var(--glass-opacity) * var(--badge-glass-ratio)))
   );
-  background:
-    var(--heart-sheen),
-    rgba(5, 4, 10, var(--badge-darkness));
+  background: var(--heart-sheen), rgba(5, 4, 10, var(--badge-darkness));
   -webkit-backdrop-filter: blur(10px) saturate(150%);
   backdrop-filter: blur(10px) saturate(150%);
   position: relative; /* anchors the rim */
@@ -1093,9 +1254,7 @@ const pulsing = ref(false)
     rgba(255, 255, 255, calc(0.4 * var(--glass-opacity) * var(--badge-glass-ratio))),
     rgba(255, 255, 255, calc(0.05 * var(--glass-opacity) * var(--badge-glass-ratio))) 60%
   );
-  background:
-    var(--heart-sheen),
-    rgba(255, 51, 71, 0.6);
+  background: var(--heart-sheen), rgba(255, 51, 71, 0.6);
   -webkit-backdrop-filter: blur(10px) saturate(180%);
   backdrop-filter: blur(10px) saturate(180%);
 }
@@ -1107,9 +1266,7 @@ const pulsing = ref(false)
 /* "Glass effect" off: nothing blurred shows through, so a see-through red
    would just look faded: solid red under the sheen instead */
 :global(html.no-glass) .fav-btn.on .heart {
-  background:
-    var(--heart-sheen),
-    #ff3347;
+  background: var(--heart-sheen), #ff3347;
 }
 
 /* ── "Like" burst (POP_MS long in the script) ──

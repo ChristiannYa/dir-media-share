@@ -25,6 +25,7 @@ import {
   MOST_PLAYED_EMPTY_TEXT,
   MOST_PLAYED_PARENTS,
   MOST_PLAYED_TITLE,
+  REVEAL_MS,
   SHUTDOWN_CONFIRM,
 } from '@/constants'
 import { useAlphabetIndex } from '@/composables/useAlphabetIndex'
@@ -317,10 +318,16 @@ function scrollSettled(maxMs: number): Promise<void> {
   })
 }
 
+/** The card flashing now (revealCard): its GalleryCard draws the spinning glow */
+const revealingPath = ref<string | null>(null)
+let revealTimer: ReturnType<typeof setTimeout> | undefined
+
 /**
  * Scrolls the grid's card of `path` into the middle of the screen and, once
- * it's there, makes it flash: a bright blue ring and glow that beats twice
- * with a little bounce, then fades. False if the grid has no such card
+ * it's there, makes it flash for REVEAL_MS: a bright ring and glow of the
+ * theme colors wandering and fading into each other (GalleryCard.vue,
+ * .reveal), beats twice while the card bounces bigger, then fades. False if
+ * the grid has no such card
  */
 function revealCard(path: string): boolean {
   // the grid's card, not its copy in the "Most played" section
@@ -329,27 +336,27 @@ function revealCard(path: string): boolean {
   )
   if (!card) return false
   card.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  const bright = {
-    boxShadow: '0 0 0 5px #5b9bff, 0 0 48px 14px rgba(91, 155, 255, 0.9)',
-    transform: 'scale(1.05)',
-  }
-  const dimmer = {
-    boxShadow: '0 0 0 4px #5b9bff, 0 0 26px 6px rgba(91, 155, 255, 0.55)',
-    transform: 'scale(1)',
-  }
-  void scrollSettled(REVEAL_SCROLL_WAIT_MS).then(() =>
+  void scrollSettled(REVEAL_SCROLL_WAIT_MS).then(async () => {
+    // the same card again: restart its glow
+    revealingPath.value = null
+    await nextTick()
+    revealingPath.value = path
+    clearTimeout(revealTimer)
+    revealTimer = setTimeout(() => (revealingPath.value = null), REVEAL_MS)
+    // the bounce, in step with the glow's beats; none with reduced motion
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     card.animate(
       [
-        { boxShadow: '0 0 0 0 rgba(91, 155, 255, 0)', transform: 'scale(1)' },
-        { ...bright, offset: 0.12 },
-        { ...dimmer, offset: 0.3 },
-        { ...bright, offset: 0.45 },
-        { ...dimmer, offset: 0.65 },
-        { boxShadow: '0 0 0 3px rgba(91, 155, 255, 0)', transform: 'scale(1)' },
+        { transform: 'scale(1)' },
+        { transform: 'scale(1.1)', offset: 0.12 },
+        { transform: 'scale(1.02)', offset: 0.3 },
+        { transform: 'scale(1.1)', offset: 0.45 },
+        { transform: 'scale(1.02)', offset: 0.65 },
+        { transform: 'scale(1)' },
       ],
-      { duration: 2800, easing: 'ease-in-out' },
-    ),
-  )
+      { duration: REVEAL_MS, easing: 'ease-in-out' },
+    )
+  })
   return true
 }
 
@@ -456,7 +463,10 @@ onMounted(() => {
   void start()
   window.addEventListener('keydown', onKeydown)
 })
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  clearTimeout(revealTimer)
+})
 </script>
 
 <template>
@@ -518,6 +528,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         :entry="entry"
         :selecting="selecting"
         :selected="picked.has(entry.path)"
+        :revealing="revealingPath === entry.path"
         @open="open"
         @favorite="toggleFavorite"
         @changed="refresh"

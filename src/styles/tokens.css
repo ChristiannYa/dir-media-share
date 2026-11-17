@@ -200,9 +200,7 @@ html.no-glass .popup-panel {
    keeps the icons and text readable, like the top bar turning nearly solid.
    Not inside .force-glass, which keeps its glass (below) */
 html.no-glass .theme-glass:not(.force-glass .theme-glass) {
-  background:
-    var(--theme-glass),
-    rgba(14, 13, 22, 0.85);
+  background: var(--theme-glass), rgba(14, 13, 22, 0.85);
 }
 
 /* "Glass effect" setting off (settings.ts puts .no-glass on <html>): no blur

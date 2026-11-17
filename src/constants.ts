@@ -239,6 +239,13 @@ export const SHARED_SETTINGS_STORAGE_KEY = 'med.sharedSettings'
 /** How long the result of a menu action ("Removed 12 files") stays before the menu closes (default; see Settings) */
 export const MENU_STATUS_MS = 1500
 
+/**
+ * How long a card flashes when the app leads you to it (App.vue revealCard:
+ * a "Most played" card opened, a folder just created), ms. The card's bounce
+ * (App.vue) and its spinning glow (GalleryCard.vue) both last this long
+ */
+export const REVEAL_MS = 3800
+
 // ── Settings popup ──
 
 /**
