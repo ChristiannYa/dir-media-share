@@ -50,6 +50,12 @@
   --lightbox-darkness: 0.6;
   --lightbox-ring-width: 1px;
 
+  /* Popups (ModalDialog.vue: Settings, the file and folder menus, every
+     dialog): how dark the layer over the page behind them is, 0–1 (Settings
+     → Look → Popup background darkness). Below 1 the page shows through it,
+     blurred (with Glass effect on) */
+  --popup-darkness: 0.4;
+
   /* Video controls' share of the glass strength (Settings → Look → Video
      control darkness ratio): their colors are --glass-opacity × this opaque */
   --video-control-ratio: 0.3;
@@ -156,6 +162,38 @@ textarea {
   backdrop-filter: blur(10px) saturate(150%);
   border: 1px solid var(--edge);
   box-shadow: var(--edge-shine);
+}
+
+/* ── Popups: one look for all of them ──
+   ModalDialog.vue uses these (Settings, the file / folder menus, every
+   dialog, the move picker); a new popup should be a ModalDialog, or use
+   both classes if it can't. Only the look is here: where they sit and how
+   big they are is up to the popup.
+   .popup-backdrop: the darkened, blurred layer over the page
+   (--popup-darkness). .popup-panel: the popup itself, lighter frosted glass,
+   so what's behind shows through blurred and the text stays readable */
+.popup-backdrop {
+  background: rgba(6, 5, 10, var(--popup-darkness));
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  backdrop-filter: blur(12px) saturate(120%);
+}
+
+.popup-panel {
+  border: 1px solid var(--edge);
+  border-radius: 1.1rem;
+  background: rgba(22, 21, 28, 0.68);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+  color: #e8e8e8;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 60px rgba(0, 0, 0, 0.6);
+}
+
+/* "Glass effect" off: no blur behind the popup (rule below), so it turns
+   nearly solid to stay readable */
+html.no-glass .popup-panel {
+  background: rgba(22, 21, 28, 0.94);
 }
 
 /* "Glass effect" off: no blur (rule below), so a dark layer under the colors

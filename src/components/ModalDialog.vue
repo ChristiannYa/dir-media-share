@@ -3,8 +3,12 @@ import { onMounted, onUnmounted } from 'vue'
 import { usePauseBackgroundWhileMounted } from '@/composables/useBackgroundPause'
 
 /**
- * Centered popup over a blurred, darkened page. Closes on Escape or a tap
- * outside, unless `locked` (e.g. while something is running).
+ * Centered popup over a blurred, darkened page: every popup of the app
+ * (Settings, the file / folder menus, the dialogs, the move picker) is one,
+ * so they all look the same. Their look is .popup-backdrop / .popup-panel
+ * (styles/tokens.css); how dark the page behind gets is Settings → Look →
+ * Popup background darkness. Closes on Escape or a tap outside, unless
+ * `locked` (e.g. while something is running).
  */
 const props = defineProps<{
   title?: string
@@ -38,9 +42,9 @@ usePauseBackgroundWhileMounted()
        don't reach the card (which would open it) -->
   <Teleport to="body">
     <Transition name="modal" appear>
-      <div class="backdrop" @click.self="requestClose">
+      <div class="backdrop popup-backdrop" @click.self="requestClose">
         <div
-          class="dialog"
+          class="dialog popup-panel"
           :class="{ wide, large }"
           role="dialog"
           aria-modal="true"
@@ -76,11 +80,10 @@ usePauseBackgroundWhileMounted()
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(6, 5, 10, 0.4);
-  backdrop-filter: blur(12px) saturate(120%);
-  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  /* its color and blur: .popup-backdrop (tokens.css) */
 }
 
+/* its glass, border and shadow: .popup-panel (tokens.css) */
 .dialog {
   display: flex;
   flex-direction: column;
@@ -89,23 +92,7 @@ usePauseBackgroundWhileMounted()
   max-height: 85dvh;
   padding: 1.1rem;
   overflow-y: auto;
-  border: 1px solid var(--edge);
-  border-radius: 1.1rem;
-  /* lighter frosted glass: what's behind shows through, blurred, so the text
-     stays readable (solid again with Glass effect off: rule below) */
-  background: rgba(22, 21, 28, 0.68);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
-  backdrop-filter: blur(18px) saturate(140%);
-  color: #e8e8e8;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 20px 60px rgba(0, 0, 0, 0.6);
   cursor: default;
-}
-
-/* "Glass effect" off: no blur behind it, so it turns nearly solid to stay readable */
-:global(html.no-glass) .dialog {
-  background: rgba(22, 21, 28, 0.94);
 }
 
 .dialog.wide {

@@ -104,6 +104,7 @@ export const DEFAULT_SETTINGS = {
   videoControlRatio: 0.3,
   lightboxDarkness: 0.6,
   lightboxRingWidth: 1,
+  popupDarkness: 0.4,
 }
 
 export type Settings = typeof DEFAULT_SETTINGS
@@ -500,6 +501,7 @@ export const SETTING_GROUPS: Array<FieldGroup<SettingField>> = [
         title: 'Viewer & player',
         keys: ['videoControlRatio', 'lightboxDarkness', 'lightboxRingWidth'],
       },
+      { title: 'Popups', keys: ['popupDarkness'] },
     ],
     shared: true,
     fields: [
@@ -632,6 +634,15 @@ export const SETTING_GROUPS: Array<FieldGroup<SettingField>> = [
         max: 10,
         step: 1,
         unit: 'px',
+      },
+      {
+        key: 'popupDarkness',
+        label: 'Popup background darkness',
+        help: 'How dark the page gets behind a popup: Settings, the menus of files and folders, and every dialog (0 = none, 1 = solid black). Below 1 the page shows through it, blurred (with Glass effect on)',
+        type: 'number',
+        min: 0,
+        max: 1,
+        step: 0.05,
       },
     ],
   },
@@ -852,6 +863,7 @@ const CSS_VARIABLES: Array<[SettingKey, string, string]> = [
   ['videoControlRatio', '--video-control-ratio', ''],
   ['lightboxDarkness', '--lightbox-darkness', ''],
   ['lightboxRingWidth', '--lightbox-ring-width', 'px'],
+  ['popupDarkness', '--popup-darkness', ''],
 ]
 
 // A changed look value overrides tokens.css on <html>; at its default the

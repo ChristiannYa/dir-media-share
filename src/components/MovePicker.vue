@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import ModalDialog from '@/components/ModalDialog.vue'
 import { fetchFolders, moveFile } from '@/api'
-import { usePauseBackgroundWhileMounted } from '@/composables/useBackgroundPause'
 import type { Entry, FolderRef } from '@/types'
 
 /**
  * Dialog to pick a folder (anywhere in the shared folder) and move one or
  * more files there (all from the same folder). Starts in their own folder.
+ * A ModalDialog, like every popup (its look, Escape, a tap outside)
  */
 const props = defineProps<{ entries: Entry[] }>()
 /** `moved`: at least one file was moved, so the listing should be reloaded */
@@ -87,29 +88,12 @@ function close() {
   else emit('close')
 }
 
-function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') close()
-}
-
-onMounted(() => {
-  open(fromDir)
-  window.addEventListener('keydown', onKeydown)
-})
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
-
-// its backdrop blurs the whole screen: no need to keep the sky moving behind it
-usePauseBackgroundWhileMounted()
+onMounted(() => open(fromDir))
 </script>
 
 <template>
-  <!-- rendered at the end of <body>, so it isn't clipped by the card or opens it on click -->
-  <Teleport to="body">
-    <div class="backdrop" @click.self="close">
-      <div class="dialog" role="dialog" aria-modal="true">
-        <h2 class="title">
-          Move <span class="name">{{ what }}</span>
-        </h2>
-
+  <!-- Escape, a tap outside and its ✕ all go through close() (not while moving) -->
+  <ModalDialog title="Move" :subtitle="what" wide :locked="moving" @close="close">
         <!-- where the picker is -->
         <nav class="path">
           <button class="crumb" @click="open('')">⌂</button>
@@ -149,56 +133,10 @@ usePauseBackgroundWhileMounted()
             }}
           </button>
         </div>
-      </div>
-    </div>
-  </Teleport>
+  </ModalDialog>
 </template>
 
 <style scoped>
-.backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1rem;
-  /* same look as ModalDialog */
-  background: rgba(6, 5, 10, 0.55);
-  backdrop-filter: blur(12px) saturate(120%);
-  -webkit-backdrop-filter: blur(12px) saturate(120%);
-}
-
-.dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  width: min(28rem, 100%);
-  max-height: 80vh;
-  padding: 1rem;
-  border: 1px solid var(--edge);
-  border-radius: 1rem;
-  background: #161616;
-  color: #e8e8e8;
-  box-shadow:
-    var(--edge-shine),
-    0 12px 40px rgba(0, 0, 0, 0.6);
-}
-
-.title {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.name {
-  color: #aaa;
-  font-weight: 400;
-}
-
 .path {
   display: flex;
   flex-wrap: wrap;
@@ -217,7 +155,7 @@ usePauseBackgroundWhileMounted()
 }
 
 .crumb:hover {
-  background: #222;
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
@@ -225,16 +163,19 @@ usePauseBackgroundWhileMounted()
   color: #444;
 }
 
+/* see-through on the popup's glass, like the menus' date box (CardMenu.vue);
+   scrolls by itself, so the popup keeps its path and buttons in view */
 .list {
   flex: 1;
   min-height: 6rem;
+  max-height: 45dvh;
   margin: 0;
   padding: 0.25rem;
   overflow-y: auto;
   list-style: none;
   border: 1px solid var(--edge-soft);
   border-radius: 0.6rem;
-  background: #0f0f0f;
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .folder {
@@ -253,7 +194,7 @@ usePauseBackgroundWhileMounted()
 }
 
 .folder:hover {
-  background: #222;
+  background: rgba(255, 255, 255, 0.08);
   color: #fff;
 }
 
