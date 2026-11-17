@@ -713,6 +713,25 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* small screens: the timer stays top left, the mode and its image go to the
+   top right. The row then spans the whole top, so it lets taps through
+   itself (to the photo / video under it); only the mode takes them */
+@media (max-width: 600px) {
+  .media-status {
+    right: 0.6rem;
+    pointer-events: none;
+  }
+
+  .media-status :deep(.app-mode-group) {
+    margin-left: auto;
+    pointer-events: auto;
+  }
+
+  .lightbox.fullscreen .media-status {
+    right: 1rem;
+  }
+}
+
 /* photo fullscreen: the top left of the screen */
 .lightbox.fullscreen .media-status {
   position: fixed;
