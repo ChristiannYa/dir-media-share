@@ -24,11 +24,14 @@ const props = defineProps<{
   active: boolean
 }>()
 const emit = defineEmits<{
-  /** The clip is downloaded: the card may keep it while near the screen */
+  /**
+   * The clip is downloaded, the video still hidden (it shows once it plays):
+   * the card may keep it while near the screen, and get its reveal ready
+   * (GalleryCard.vue's preview sweep)
+   */
   loaded: []
+  /** It started playing (once per clip: not again on each resume) */
   playing: []
-  /** It played for the first time since the page loaded (the card pulses) */
-  firstPlay: []
   error: []
 }>()
 
@@ -175,12 +178,10 @@ async function load() {
 function onPlaying() {
   if (phase.value === 'playing') return // fires again on every resume
   phase.value = 'playing'
-  // the first time this preview plays since the page loaded: a buzz, and the
-  // card pulses (not again when scrolled back to or its folder reopened)
-  if (isFirstPlay(`${props.kind}:${props.path}`)) {
-    previewHaptic()
-    emit('firstPlay')
-  }
+  // the first time this preview plays since the page loaded: a buzz (not
+  // again when scrolled back to or its folder reopened). The card's reveal
+  // goes by its own `playing` (GalleryCard.vue)
+  if (isFirstPlay(`${props.kind}:${props.path}`)) previewHaptic()
   emit('playing')
   lingerTimer = setTimeout(() => (showStatus.value = false), settings.previewStatusLingerMs)
 }

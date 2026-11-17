@@ -211,6 +211,9 @@ html.no-glass .theme-glass:not(.force-glass .theme-glass) {
    and video fullscreen). While it's open the grid's previews and the sky are
    paused (App.vue), so what's behind it stands still and its blur is drawn
    once instead of on every frame: it keeps its glass whatever the setting.
+   Also the preview sweep's frost (GalleryCard.vue): the blur a preview
+   starts with on its first play. Small and gone after the sweep, so it
+   costs little.
 
    ::before / ::after too: `*` alone doesn't reach them, and the folder cards'
    glass (::before) and the glass frame around folder and video cards

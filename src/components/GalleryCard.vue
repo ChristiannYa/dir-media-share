@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref } from 'vue'
+import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
 import FileMenu from '@/components/FileMenu.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LoadingDots from '@/components/LoadingDots.vue'
 import PreviewVideo from '@/components/PreviewVideo.vue'
-import { fileUrl, folderPreviewUrl, previewGeneration, previewUrl, thumbUrl } from '@/api'
+import {
+  fileUrl,
+  folderPreviewUrl,
+  folderThumbUrl,
+  previewGeneration,
+  previewUrl,
+  thumbUrl,
+} from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { REVEAL_MS, THEMED_NAME_PARENTS, TS_BADGE_TITLE } from '@/constants'
 import { ICON_EYE } from '@/icons'
@@ -13,6 +20,7 @@ import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
 import type { Entry } from '@/types'
 import { isMediaEntry } from '@/utils/entry'
+import { hasPlayed } from '@/utils/firstPlays'
 import { formatDuration, formatQuality, formatSize } from '@/utils/format'
 
 const props = defineProps<{
@@ -92,6 +100,7 @@ const {
   hasThumbFailed,
   showPreview,
   isPreviewActive,
+  isHeldBack,
   hasPreview,
   onMediaLoad,
   onMediaError,
@@ -203,10 +212,144 @@ function onImageLoad(e: Event) {
 }
 
 /**
- * The card's preview played for the first time since the page loaded: a
- * glow in the theme colors pulses around the card (two beats, then gone)
+ * The card's preview plays for the first time since the page loaded: it
+ * starts blurred, and a see-through layer slides down through it once (only
+ * the preview: not the name under it), revealing it sharp above its bottom
+ * edge. In two steps, so the preview is never seen sharp before the sweep:
+ *  1. waiting (prepareSweep): the clip is downloaded and this card hasn't
+ *     revealed it yet (firstPlayAhead), the video still hidden. The sweep is
+ *     put in place, standing still: its frost already covers the preview,
+ *     its colors above it
+ *  2. running (runSweep): this card's video starts playing (behind the
+ *     frost), and the sweep slides down. Or, if the card is on screen but
+ *     its preview is held back (Max playing previews: it won't play for
+ *     now), right away: it reveals the sharp still instead, rather than
+ *     leaving it blurred with the clip ready
+ * All decided by this card, from its own preview's events: not by the
+ * page-wide first-play check (utils/firstPlays.ts), which a second card of
+ * the same file or folder (the "Most played" section and the grid) would
+ * never pass, leaving it blurred
+ * Its colors are always the five theme colors, laid out at random each time
+ * (the .preview-sweep style): a soft blob of each at a random spot, size and
+ * shape, fading into the others, over a blend of them all at a random angle
+ * and order, so the whole layer is colored. Null while there's no sweep
  */
-const pulsing = ref(false)
+const SWEEP_COLORS = ['purple', 'blue', 'cyan', 'green', 'pink'].map((c) => `var(--theme-${c})`)
+const sweepStyle = ref<Record<string, string> | null>(null)
+/** The sweep stands still, its frost over the preview, until the video plays */
+const sweepWaiting = ref(false)
+
+/** The colors in a random order (Fisher–Yates) */
+function shuffledColors(): string[] {
+  const order = [...SWEEP_COLORS]
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[order[i], order[j]] = [order[j], order[i]]
+  }
+  return order
+}
+
+/** A whole number from `min` to `max` */
+function randomIn(min: number, max: number): number {
+  return Math.round(min + Math.random() * (max - min))
+}
+
+/** Step 1: the sweep in place, still, its frost over the (still hidden) preview */
+function prepareSweep() {
+  // a blob of each color: an ellipse 45–95% of the preview wide and tall,
+  // centered anywhere on it, fading out to its edge
+  const blobs = shuffledColors().map(
+    (color) =>
+      `radial-gradient(ellipse ${randomIn(45, 95)}% ${randomIn(45, 95)}% at ` +
+      `${randomIn(0, 100)}% ${randomIn(0, 100)}%, ${color}, transparent)`,
+  )
+  // under them, every color blended at a random angle: no spot is left empty
+  const base = `linear-gradient(${randomIn(0, 359)}deg, ${shuffledColors().join(', ')})`
+  sweepStyle.value = { '--sweep-colors': [...blobs, base].join(', ') }
+  sweepWaiting.value = true
+}
+
+/**
+ * Step 2: the sweep slides down and reveals the preview (or the still).
+ * Only once per card: nothing to reveal once it's done, or for a card whose
+ * preview had already played when it appeared
+ */
+function runSweep() {
+  if (!firstPlayAhead.value && !sweepWaiting.value) return
+  if (!sweepStyle.value) prepareSweep() // played without step 1: its colors now
+  sweepWaiting.value = false
+  firstPlayAhead.value = false
+}
+
+/** Its clip is downloaded (still hidden): step 1, if it's still to be revealed */
+function onOwnPreviewLoaded() {
+  onPreviewLoaded(trackKey.value)
+  if (firstPlayAhead.value) prepareSweep()
+}
+
+/** Its video started playing: step 2 (does nothing if already revealed) */
+function onOwnPreviewPlaying() {
+  onPreviewPlaying(trackKey.value)
+  runSweep()
+}
+
+// the clip is ready, the card on screen, but its preview is held back (Max
+// playing previews): reveal the still now rather than keep it blurred until
+// it gets a turn to play (it then just plays, sharp)
+watch(
+  () => sweepWaiting.value && isHeldBack(trackKey.value),
+  (heldBack) => {
+    if (heldBack) runSweep()
+  },
+)
+
+/** The sweep is gone (done, or its preview went away or failed) */
+function endSweep() {
+  sweepStyle.value = null
+  sweepWaiting.value = false
+}
+
+/**
+ * A video card, or a folder card with a preview, whose preview hasn't played
+ * yet since the page loaded: its still (a folder's: .folder-still) is shown
+ * blurred, low quality, from the start (while the server is asked, encodes,
+ * the clip downloads…), and stays so until the sweep reveals the preview.
+ * Then false for good; also when the preview fails, so the still isn't left
+ * blurred with nothing coming to reveal it. At the start: true unless its
+ * preview already played since the page loaded (same key as PreviewVideo's
+ * first-play check, "video:path" / "folder:path"); after that, only this
+ * card's own events change it
+ */
+const previewKind =
+  props.entry.kind === 'video' || props.entry.kind === 'folder' ? props.entry.kind : null
+const firstPlayAhead = ref(
+  previewKind !== null &&
+    hasPreview(props.entry) &&
+    !hasPlayed(`${previewKind}:${props.entry.path}`),
+)
+
+/** Folders: their preview's still loaded (shown over the icon), or failed (the icon stays) */
+const folderStillLoaded = ref(false)
+const folderStillFailed = ref(false)
+
+/** The still's blur (.thumb-veil), until a sweep (with its own frost) takes over */
+const thumbVeiled = computed(() => firstPlayAhead.value && !sweepStyle.value)
+
+/** The preview failed: no sweep is coming, the still shows sharp */
+function onPreviewFailed() {
+  onPreviewError(trackKey.value)
+  endSweep()
+  firstPlayAhead.value = false
+}
+
+// the preview went away before playing (scrolled far off, folder left…): a
+// waiting sweep would leave the still blurred behind it
+watch(
+  () => showPreview(trackKey.value),
+  (shown) => {
+    if (!shown) endSweep()
+  },
+)
 
 /**
  * The reveal's colors (the .reveal style): one soft blob per theme color
@@ -257,8 +400,6 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
     @contextmenu="onContextMenu"
     @click="onClick"
   >
-    <!-- a new preview just played: a glow in the theme colors pulses around the card -->
-    <span v-if="pulsing" class="pulse" aria-hidden="true" @animationend="pulsing = false" />
     <!-- the app led you here: a halo and a thin ring, both of the theme
          colors wandering and fading into each other, as they beat (App.vue
          revealCard). The same random paths on both (revealStyle) -->
@@ -294,6 +435,20 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       :class="{ 'no-preview': !hasPreview(entry) }"
     >
       <span class="folder-icon">📁</span>
+      <!-- the still of the preview this card will play (its first video /
+           image, the same pick), over the icon once it loads: blurred
+           (thumbVeiled) until the preview plays and the sweep reveals it.
+           Answered right away, even while the clip is being built -->
+      <img
+        v-if="hasPreview(entry) && !folderStillFailed"
+        class="folder-still"
+        :class="{ loaded: folderStillLoaded }"
+        :src="folderThumbUrl(entry.path, folderPick)"
+        alt=""
+        loading="lazy"
+        @load="folderStillLoaded = true"
+        @error="folderStillFailed = true"
+      />
       <!-- :key: reloads with clips made with the new settings after they change -->
       <PreviewVideo
         v-if="hasPreview(entry) && showPreview(trackKey)"
@@ -302,11 +457,31 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         :path="entry.path"
         :active="isPreviewActive(trackKey)"
         :api-url="folderPreviewUrl(entry.path, folderPick)"
-        @loaded="onPreviewLoaded(trackKey)"
-        @playing="onPreviewPlaying(trackKey)"
-        @first-play="pulsing = true"
-        @error="onPreviewError(trackKey)"
+        @loaded="onOwnPreviewLoaded"
+        @playing="onOwnPreviewPlaying"
+        @error="onPreviewFailed"
       />
+      <!-- its preview hasn't played yet: the still shows blurred, low
+           quality, until the sweep below takes over and reveals the preview
+           (thumbVeiled). Blurred even with Glass effect off (.force-glass) -->
+      <span v-if="thumbVeiled" class="thumb-veil force-glass" aria-hidden="true" />
+      <!-- its preview's first play: blurred (the frost) from before the video
+           shows, then colors slide down through it, the sharp preview
+           showing above them as they pass (prepareSweep / runSweep) -->
+      <div
+        v-if="sweepStyle"
+        class="preview-sweep"
+        :class="{ waiting: sweepWaiting }"
+        :style="sweepStyle"
+        aria-hidden="true"
+        @animationend.self="endSweep"
+      >
+        <span class="sweep-colors" />
+        <!-- .force-glass: blurred even with Glass effect off (tokens.css):
+             it's what makes the preview start out low quality, and only
+             lasts the sweep -->
+        <span class="sweep-frost force-glass" />
+      </div>
       <!-- its dates (last added, last viewed) are in its menu (right-click / hold) -->
       <!-- bottom row: what's inside and its size, on the right -->
       <!-- not there at all when the folder has nothing to count (empty, or only empty subfolders) -->
@@ -436,11 +611,31 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         :path="entry.path"
         :active="isPreviewActive(trackKey)"
         :api-url="previewUrl(entry.path)"
-        @loaded="onPreviewLoaded(trackKey)"
-        @playing="onPreviewPlaying(trackKey)"
-        @first-play="pulsing = true"
-        @error="onPreviewError(trackKey)"
+        @loaded="onOwnPreviewLoaded"
+        @playing="onOwnPreviewPlaying"
+        @error="onPreviewFailed"
       />
+      <!-- its preview hasn't played yet: the still shows blurred, low
+           quality, until the sweep below takes over and reveals the preview
+           (thumbVeiled). Blurred even with Glass effect off (.force-glass) -->
+      <span v-if="thumbVeiled" class="thumb-veil force-glass" aria-hidden="true" />
+      <!-- its preview's first play: blurred (the frost) from before the video
+           shows, then colors slide down through it, the sharp preview
+           showing above them as they pass (prepareSweep / runSweep) -->
+      <div
+        v-if="sweepStyle"
+        class="preview-sweep"
+        :class="{ waiting: sweepWaiting }"
+        :style="sweepStyle"
+        aria-hidden="true"
+        @animationend.self="endSweep"
+      >
+        <span class="sweep-colors" />
+        <!-- .force-glass: blurred even with Glass effect off (tokens.css):
+             it's what makes the preview start out low quality, and only
+             lasts the sweep -->
+        <span class="sweep-frost force-glass" />
+      </div>
       <!-- top-left: how many times it was played (not in selection mode: the check is
            there); viewsOnly: bottom-right, where the folder cards have theirs -->
       <span
@@ -641,64 +836,102 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   pointer-events: none;
 }
 
-/* ── Preview pulse ──
-   A new preview played: a soft glow in the theme colors swells around the
-   card twice and fades. A blurred layer of the colors behind everything
-   else on the card (its ring, glass border and folder glass are at -1), so
-   only the halo past its edges shows; the colors turn around it as it
-   pulses (--ring-angle, registered in styles/ring.css) */
-.pulse {
+/* ── Preview sweep ──
+   A preview's first play since the page loaded (prepareSweep / runSweep in
+   the script). It starts out low quality, blurred, and a see-through layer of
+   the five theme colors (randomly laid out: --sweep-colors) slides down
+   through it once, from above it to below it; above the colors' bottom edge
+   the sharp preview shows, below it the blur stays, until it's all revealed.
+
+   One piece, twice the preview's height, moving down by its own height:
+   the colors in its top half, the frost (the blur) in its bottom half, right
+   under them. At the start the colors are above the preview and the frost
+   covers it; at the end the colors are below it and the frost far below, so
+   the reveal edge is always exactly the colors' bottom edge.
+
+   Inside the preview's box (.folder-wrap / .media-wrap), which clips it, so
+   the name under it is left alone; after the preview, before the badges, so
+   it passes over the picture and under the badges. The piece itself only
+   moves (a transform): an opacity, mask or filter on it would cut the
+   frost's blur off from the preview under it */
+.preview-sweep {
   position: absolute;
-  z-index: -2;
-  inset: calc(-1 * var(--card-outset));
-  border-radius: calc(var(--card-radius) + var(--card-outset));
-  background: conic-gradient(
-    from var(--ring-angle),
-    var(--theme-purple),
-    var(--theme-blue),
-    var(--theme-cyan),
-    var(--theme-green),
-    var(--theme-pink),
-    var(--theme-purple)
-  );
-  filter: blur(14px) saturate(var(--ring-vibrancy, 1));
-  opacity: 0;
+  top: -100%;
+  left: 0;
+  width: 100%;
+  height: 200%;
   pointer-events: none;
-  animation: card-pulse 1.5s ease-in-out;
+  animation: preview-sweep 1.4s ease-in-out forwards;
 }
 
-@keyframes card-pulse {
-  0% {
-    opacity: 0;
-    transform: scale(0.96);
-    --ring-angle: 0deg;
-  }
-  25% {
-    opacity: 0.9;
-    transform: scale(1.03);
-  }
-  50% {
-    opacity: 0.35;
-    transform: scale(1);
-  }
-  75% {
-    opacity: 0.75;
-    transform: scale(1.03);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1);
-    --ring-angle: 360deg;
+@keyframes preview-sweep {
+  to {
+    transform: translateY(100%);
   }
 }
 
-/* reduced motion: one soft glow, no swelling or turning */
+/* step 1 (prepareSweep): held at its start, the frost covering the preview,
+   until the video plays; then it runs from the start (runSweep) */
+.preview-sweep.waiting {
+  animation-play-state: paused;
+}
+
+/* the colors: the top half. Their top edge fades in, so the trailing side
+   doesn't end in a hard straight line; the bottom edge (the reveal edge)
+   stays crisp. The mask is on the colors only: on .preview-sweep it would
+   cut the frost off from the preview */
+.sweep-colors {
+  position: absolute;
+  inset: 0 0 50%;
+  background: var(--sweep-colors);
+  opacity: 0.4;
+  -webkit-mask-image: linear-gradient(transparent, #000 16%);
+  mask-image: linear-gradient(transparent, #000 16%);
+}
+
+/* the frost: the bottom half, blurring what's under it (the low quality look).
+   The same blur as .thumb-veil, the still's blur before the sweep, so the
+   handover from one to the other doesn't show */
+.sweep-frost {
+  position: absolute;
+  inset: 50% 0 0;
+}
+
+.sweep-frost,
+.thumb-veil {
+  -webkit-backdrop-filter: blur(6px) saturate(85%);
+  backdrop-filter: blur(6px) saturate(85%);
+}
+
+/* a video's or folder's still, blurred until its preview's first play
+   (thumbVeiled in the script): over the still, under the preview's status
+   pill and the badges; the sweep takes over from it */
+.thumb-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* reduced motion: nothing slides; the colors fade in and out over the
+   preview, already sharp */
 @media (prefers-reduced-motion: reduce) {
-  .pulse {
-    animation: card-glow 1s ease-in-out;
+  .preview-sweep {
+    top: 0;
+    height: 100%;
+    opacity: 0;
+    animation: card-glow 1.4s ease-in-out;
+  }
+
+  .sweep-colors {
+    inset: 0;
+  }
+
+  .sweep-frost {
+    display: none;
   }
 }
 
+/* fades in to 0.6 and out again (the sweep and the reveal with reduced motion) */
 @keyframes card-glow {
   50% {
     opacity: 0.6;
@@ -707,8 +940,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 
 /* ── Reveal ──
    The app led you to this card (App.vue revealCard: a "Most played" card
-   opened, a folder just created). Like the preview pulse, but stronger and
-   longer (REVEAL_MS): a wide blurred halo and a thin ring just outside the
+   opened, a folder just created), for REVEAL_MS: a wide blurred halo and a thin ring just outside the
    card beat twice and fade, while the card itself bounces (App.vue).
    Their colors: a soft blob of each theme color, fading into the others,
    each wandering on a random path picked anew each time (revealDrift in the
@@ -1048,6 +1280,24 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   line-height: 1;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
   transition: transform 0.15s;
+}
+
+/* the folder preview's still (/api/folder-thumb), filling the card over the
+   icon, under the preview clip (which comes after it). Hidden until it has
+   loaded, so a slow or missing one never shows a broken image: the icon
+   shows meanwhile */
+.folder-still {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.folder-still.loaded {
+  opacity: 1;
 }
 
 .card:hover .folder-icon {

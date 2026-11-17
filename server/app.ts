@@ -20,6 +20,7 @@ import {
   ROUTE_FILES,
   ROUTE_FIX_TS,
   ROUTE_FOLDER_PREVIEW,
+  ROUTE_FOLDER_THUMB,
   ROUTE_FOLDERS,
   ROUTE_HEATMAP,
   ROUTE_INFO,
@@ -78,7 +79,7 @@ import {
 } from './handlers/settings.ts'
 import { shutdown } from './handlers/shutdown.ts'
 import { storyboardHandler } from './handlers/storyboard.ts'
-import { thumb } from './handlers/thumb.ts'
+import { folderThumb, thumb } from './handlers/thumb.ts'
 import { fixTsFile } from './handlers/tsFix.ts'
 import { sendStatus, serveStatic, type Handler } from './http.ts'
 import { startIdleShutdown, trackActivity } from './idle.ts'
@@ -101,6 +102,7 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_THUMB]: { GET: thumb },
   [ROUTE_PREVIEW]: { GET: previewHandler },
   [ROUTE_FOLDER_PREVIEW]: { GET: folderPreviewHandler },
+  [ROUTE_FOLDER_THUMB]: { GET: folderThumb },
   [ROUTE_JOB_EVENTS]: { GET: jobEvents },
   [ROUTE_CANCEL_JOB]: { POST: cancelJob },
   [ROUTE_STORYBOARD]: { GET: storyboardHandler },

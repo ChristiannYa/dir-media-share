@@ -11,6 +11,11 @@ export const ROUTE_THUMB = '/api/thumb'
 export const ROUTE_PREVIEW = '/api/preview'
 /** Builds a folder's preview clip, then answers its URL under ROUTE_PREVIEWS as JSON: GET ?path= */
 export const ROUTE_FOLDER_PREVIEW = '/api/folder-preview'
+/**
+ * Still of a folder's preview (its first video / image), right away, even
+ * while the clip is still being built; the same `pick` as ROUTE_FOLDER_PREVIEW: GET ?path=&pick=
+ */
+export const ROUTE_FOLDER_THUMB = '/api/folder-thumb'
 /** Live stream (Server-Sent Events) of preview builds: queued / encoding / done / failed */
 export const ROUTE_JOB_EVENTS = '/api/jobs/events'
 /** Stops a preview's build (queued or encoding) whose card left the screen: POST ?kind=video|folder&path= */

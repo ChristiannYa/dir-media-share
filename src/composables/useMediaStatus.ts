@@ -289,6 +289,15 @@ export function useMediaStatus() {
     return playing.value.has(path) && !suspended.value
   }
 
+  /**
+   * On screen, but its preview doesn't play: held back by maxPlayingPreviews
+   * (not among the nearest the middle). Not while the lightbox is open: the
+   * grid is covered then
+   */
+  function isHeldBack(path: string): boolean {
+    return visible.value.has(path) && !playing.value.has(path) && !suspended.value
+  }
+
   /** Videos, and folders with something to preview, get an auto-playing preview */
   function hasPreview(entry: Entry): boolean {
     return entry.kind === 'video' || (entry.kind === 'folder' && entry.has_preview === true)
@@ -323,6 +332,7 @@ export function useMediaStatus() {
     isPreviewReady,
     showPreview,
     isPreviewActive,
+    isHeldBack,
     hasPreview,
     isLoading,
   }

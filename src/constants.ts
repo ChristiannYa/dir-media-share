@@ -140,6 +140,8 @@ export const API = {
   preview: '/api/preview',
   /** Same for a folder's preview, made from the videos (or images) inside: ?path= */
   folderPreview: '/api/folder-preview',
+  /** Still of a folder's preview (its first video / image), right away: ?path=&pick= (the same pick) */
+  folderThumb: '/api/folder-thumb',
   /** Live stream of preview builds (queued / encoding / done / failed) */
   jobEvents: '/api/jobs/events',
   /** Stops a preview's build whose card left the screen (POST): ?kind=video|folder&path= */
