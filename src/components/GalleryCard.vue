@@ -387,8 +387,9 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       {
         'ring-frame': isMedia,
         'ring-loading': isMedia && isLoading(entry, trackKey),
-        // hearted photos and videos show their ring (theme colors); the rest get the glass border instead
-        'plain-ring': isMedia && !entry.favorite,
+        // hearted photos and videos show their ring (theme colors); the rest get the glass
+        // border instead. Not in the Most played section (viewsOnly): there every one gets the glass
+        'plain-ring': isMedia && (!entry.favorite || viewsOnly),
         'is-loading': isLoading(entry, trackKey),
         selecting,
         selected,
