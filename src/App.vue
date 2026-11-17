@@ -33,6 +33,7 @@ import {
   SHUTDOWN_CONFIRM,
 } from '@/constants'
 import { useAlphabetIndex } from '@/composables/useAlphabetIndex'
+import { playPowerOff } from '@/composables/usePowerOff'
 import { backgroundPaused, holdBackgroundPause } from '@/composables/useBackgroundPause'
 import {
   RELOAD_GALLERY_KEY,
@@ -566,6 +567,8 @@ provide(REVEAL_ENTRY_KEY, async (path: string) => {
 
 async function shutdown() {
   if (!confirm(SHUTDOWN_CONFIRM)) return
+  // the screen turns off like an old TV, then the server stops
+  await playPowerOff()
   await shutdownServer()
   window.close()
 }
