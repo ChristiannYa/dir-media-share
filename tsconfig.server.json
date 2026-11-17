@@ -2,7 +2,8 @@
 // type stripping (no build step), so only syntax Node can strip is allowed.
 {
   "extends": "@tsconfig/node24/tsconfig.json",
-  "include": ["server/**/*.ts"],
+  // scripts/: dev tools that run the same way (e.g. `npm run dev:remote`)
+  "include": ["server/**/*.ts", "scripts/**/*.ts"],
   "compilerOptions": {
     // Node needs real file extensions in imports ("./consts/routes.ts")
     "allowImportingTsExtensions": true,
