@@ -4,8 +4,8 @@ import type { AppMode } from '@/appMode'
 import { API } from '@/constants'
 
 /**
- * The images beside the app mode pill (Settings → App → App mode images),
- * shared by every pill (top bar, viewer) and the Settings section, so a new
+ * The images beside the app mode pill, shared by every pill (top bar,
+ * viewer) and the popup that changes them (AppModeImageDialog.vue), so a new
  * image or frame shows everywhere as soon as it's saved. A mode without one
  * of its own shows its built-in one, if it has one (dev: a code icon).
  */

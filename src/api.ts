@@ -370,6 +370,46 @@ export async function saveAppModeFrame(mode: string, frame: ImageFrame): Promise
   }
 }
 
+/** An app mode image that was replaced or removed */
+export interface HistoryImage {
+  id: string
+  /** Where to load it */
+  url: string
+  frame: ImageFrame | null
+  /** The mode it was the image of */
+  mode: string
+  /** When it was replaced or removed (ms since 1970) */
+  replacedAt: number
+}
+
+/** The app mode images replaced or removed, newest first */
+export async function fetchAppModeHistory(): Promise<HistoryImage[]> {
+  const res = await fetch(API.appModeHistory)
+  if (!res.ok) throw new Error(`Loading the earlier images failed (${res.status})`)
+  const list = (await res.json()) as Array<Omit<HistoryImage, 'url'>>
+  return list.map((e) => ({
+    ...e,
+    url: `${API.appModeHistoryImage}?id=${encodeURIComponent(e.id)}`,
+  }))
+}
+
+/** Makes the history image `id` the image of `mode` again (its current one goes to the history) */
+export function restoreAppModeImage(mode: string, id: string): Promise<{ ok: true }> {
+  return post(
+    `${API.appModeImageRestore}?mode=${encodeURIComponent(mode)}&id=${encodeURIComponent(id)}`,
+  )
+}
+
+/** Moves `mode`'s image to the history: it has none after */
+export function removeAppModeImage(mode: string): Promise<{ ok: true }> {
+  return post(`${API.appModeImageRemove}?mode=${encodeURIComponent(mode)}`)
+}
+
+/** Deletes an image of the history for good */
+export function deleteAppModeHistoryImage(id: string): Promise<{ ok: true }> {
+  return post(`${API.appModeHistoryDelete}?id=${encodeURIComponent(id)}`)
+}
+
 /** A running upload */
 /** Where an upload was saved */
 export interface Uploaded {

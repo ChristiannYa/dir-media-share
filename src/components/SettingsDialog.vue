@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, shallowRef } from 'vue'
-import AppModeImagesSetting from '@/components/AppModeImagesSetting.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import SettingRow from '@/components/SettingRow.vue'
 import {
@@ -90,18 +89,6 @@ const TABS: Array<{ id: Tab; label: string; reset: string; form: SettingsDraft }
 
 function changesIn(form: SettingsDraft): number {
   return Object.keys(form.changes.value).length
-}
-
-// ── App mode images (App tab) ──
-// Files, not values like the other settings: saved on their own as soon as
-// their frame is used (AppModeImagesSetting.vue), not with Done.
-
-const IMAGES_TITLE = 'App mode images'
-const imagesOpen = computed(() => openSection.shared === IMAGES_TITLE)
-
-function toggleImages() {
-  openSection.shared = imagesOpen.value ? null : IMAGES_TITLE
-  openSub.shared = null
 }
 
 const deviceChanges = computed(() => changesIn(device))
@@ -481,26 +468,6 @@ async function done() {
               />
             </div>
           </div>
-        </div>
-      </section>
-
-      <!-- the images beside the app mode pill: files, saved on their own (see the script) -->
-      <section v-if="tab === 'shared'" class="group">
-        <h3 class="group-heading">
-          <button
-            type="button"
-            class="group-toggle"
-            :aria-expanded="imagesOpen"
-            @click="toggleImages"
-          >
-            <svg class="chevron" :class="{ open: imagesOpen }" viewBox="0 0 24 24" aria-hidden="true">
-              <path :d="ICON_CHEVRON" />
-            </svg>
-            <span class="group-title">{{ IMAGES_TITLE }}</span>
-          </button>
-        </h3>
-        <div v-show="imagesOpen" class="group-body">
-          <AppModeImagesSetting />
         </div>
       </section>
       </template>

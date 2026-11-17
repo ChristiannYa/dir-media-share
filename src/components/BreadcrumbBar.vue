@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppModeButton from '@/components/AppModeButton.vue'
+import AppModeImage from '@/components/AppModeImage.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
@@ -107,8 +108,9 @@ onUnmounted(() => rowResize.disconnect())
     <div class="actions">
       <!-- time left until the app locks (nothing if it never does); double-tap to lock -->
       <LockTimer class="bar-timer theme-glass" lockable />
-      <!-- app mode: goon records and shows plays, last viewed and the heatmap; dev neither -->
-      <AppModeButton class="theme-glass" />
+      <!-- app mode: goon records and shows plays, last viewed and the heatmap;
+           dev neither. Its image is on the right, by the settings button -->
+      <AppModeButton class="theme-glass" no-image />
       <!-- pushes settings and shutdown to the right end -->
       <span class="bar-spacer" />
       <!-- menu of the open folder: no button, opened from its crumb below;
@@ -122,6 +124,8 @@ onUnmounted(() => rowResize.disconnect())
         @changed="emit('changed')"
         @renamed="emit('renamed', $event)"
       />
+      <!-- the app mode's image: a tap opens the popup that changes it -->
+      <AppModeImage editable />
       <button class="bar-btn settings-btn" aria-label="Settings" @click="emit('settings')">
         <!-- gear -->
         <svg viewBox="0 0 24 24" aria-hidden="true" class="filled">
@@ -429,11 +433,6 @@ onUnmounted(() => rowResize.disconnect())
   border-radius: 999px;
   color: #fff;
   font-size: 0.72rem; /* the app mode pill's, so both pills are the same height */
-}
-
-/* the mode pill and its image, a bit further from the timer than the bar's gap */
-.app-mode-group {
-  margin-left: 0.5rem;
 }
 
 /* takes the free space between the left (timer, mode) and right buttons */

@@ -1,3 +1,8 @@
+<script lang="ts">
+/** The popups open now, the last one on top: Escape closes only that one */
+const openDialogs: symbol[] = []
+</script>
+
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { usePauseBackgroundWhileMounted } from '@/composables/useBackgroundPause'
@@ -27,12 +32,22 @@ function requestClose() {
   if (!props.locked) emit('close')
 }
 
+/** This popup, in openDialogs */
+const self = Symbol('dialog')
+
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape') requestClose()
+  // one over another (e.g. the frame over the image popup): only the top one closes
+  if (e.key === 'Escape' && openDialogs.at(-1) === self) requestClose()
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onMounted(() => {
+  openDialogs.push(self)
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => {
+  openDialogs.splice(openDialogs.indexOf(self), 1)
+  window.removeEventListener('keydown', onKeydown)
+})
 
 // the backdrop blurs the whole screen: no need to keep the sky moving behind it
 usePauseBackgroundWhileMounted()

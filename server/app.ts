@@ -9,7 +9,12 @@ import { startCachePruning } from './cachePrune.ts'
 import { PREVIEW_DIR } from './consts/previews.ts'
 import {
   ROUTE_APP_MODE_FRAME,
+  ROUTE_APP_MODE_HISTORY,
+  ROUTE_APP_MODE_HISTORY_DELETE,
+  ROUTE_APP_MODE_HISTORY_IMAGE,
   ROUTE_APP_MODE_IMAGE,
+  ROUTE_APP_MODE_IMAGE_REMOVE,
+  ROUTE_APP_MODE_IMAGE_RESTORE,
   ROUTE_APP_MODE_IMAGES,
   ROUTE_BROWSE,
   ROUTE_CANCEL_JOB,
@@ -51,8 +56,13 @@ import {
 import { PASSWORD_ENV } from './consts/server.ts'
 import { STORYBOARD_DIR } from './consts/storyboards.ts'
 import {
+  appModeHistory,
+  appModeHistoryImage,
   appModeImage,
   appModeImages,
+  deleteAppModeHistoryImage,
+  removeAppModeImage,
+  restoreAppModeImage,
   saveAppModeFrame,
   uploadAppModeImage,
 } from './handlers/appModeImage.ts'
@@ -142,6 +152,11 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_APP_MODE_IMAGE]: { GET: appModeImage, POST: uploadAppModeImage },
   [ROUTE_APP_MODE_IMAGES]: { GET: appModeImages },
   [ROUTE_APP_MODE_FRAME]: { POST: saveAppModeFrame },
+  [ROUTE_APP_MODE_IMAGE_REMOVE]: { POST: removeAppModeImage },
+  [ROUTE_APP_MODE_IMAGE_RESTORE]: { POST: restoreAppModeImage },
+  [ROUTE_APP_MODE_HISTORY]: { GET: appModeHistory },
+  [ROUTE_APP_MODE_HISTORY_IMAGE]: { GET: appModeHistoryImage },
+  [ROUTE_APP_MODE_HISTORY_DELETE]: { POST: deleteAppModeHistoryImage },
 }
 
 /**

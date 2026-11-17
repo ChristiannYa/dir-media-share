@@ -214,6 +214,16 @@ export const API = {
   appModeImages: '/api/app-mode-images',
   /** Saves the part of a mode's image the pill shows: POST ?mode= JSON { x, y, w, h } */
   appModeFrame: '/api/app-mode-frame',
+  /** Moves a mode's image to the history; it has none after: POST ?mode= */
+  appModeImageRemove: '/api/app-mode-image-remove',
+  /** Makes an image of the history a mode's image again: POST ?mode=&id= */
+  appModeImageRestore: '/api/app-mode-image-restore',
+  /** The images replaced or removed, newest first: GET */
+  appModeHistory: '/api/app-mode-history',
+  /** One image of the history, whole: GET ?id= */
+  appModeHistoryImage: '/api/app-mode-history-image',
+  /** Deletes an image of the history for good: POST ?id= */
+  appModeHistoryDelete: '/api/app-mode-history-delete',
 } as const
 
 /**

@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import FramedImage from '@/components/FramedImage.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import type { ImageFrame } from '@/api'
 
 /**
- * Picks the round part of an app mode image the pill shows (Settings → App →
- * App mode images): a circle over the image, moved by dragging it and resized
- * from the corners of its square, with what's outside dimmed. Beside it, the
- * result as big and at the pill's own size. Use hands the frame to the parent
- * (AppModeImagesSetting.vue), which saves it and closes this.
+ * Picks the round part of an app mode image the pill shows (from the popup a
+ * tap on the image opens): a circle over the image, moved by dragging it and
+ * resized from the corners of its square, with what's outside dimmed. Beside
+ * it, the result as big and at the pill's own size. Use hands the frame to
+ * the parent (AppModeImageDialog.vue), which saves it and closes this.
  */
 const props = defineProps<{
   title: string
@@ -124,15 +124,8 @@ function use() {
   if (frame.value) emit('use', frame.value)
 }
 
-// Escape closes only this dialog, not Settings under it too: caught on the
-// way down, before the dialogs' own listeners see it
-function onKeydown(e: KeyboardEvent) {
-  if (e.key !== 'Escape') return
-  e.stopPropagation()
-  if (!props.saving) emit('close')
-}
-onMounted(() => window.addEventListener('keydown', onKeydown, true))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown, true))
+// Escape closes only this one, not the popup under it (ModalDialog), and not
+// while saving (`locked`)
 </script>
 
 <template>

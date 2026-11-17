@@ -117,6 +117,16 @@ export const ROUTE_APP_MODE_IMAGE = '/api/app-mode-image'
 export const ROUTE_APP_MODE_IMAGES = '/api/app-mode-images'
 /** Saves the part of a mode's image the pill shows: POST ?mode= JSON { x, y, w, h } */
 export const ROUTE_APP_MODE_FRAME = '/api/app-mode-frame'
+/** Moves a mode's image to the history; it has none after: POST ?mode= */
+export const ROUTE_APP_MODE_IMAGE_REMOVE = '/api/app-mode-image-remove'
+/** Makes an image of the history a mode's image again: POST ?mode=&id= */
+export const ROUTE_APP_MODE_IMAGE_RESTORE = '/api/app-mode-image-restore'
+/** The images replaced or removed, newest first: GET */
+export const ROUTE_APP_MODE_HISTORY = '/api/app-mode-history'
+/** One image of the history, whole: GET ?id= */
+export const ROUTE_APP_MODE_HISTORY_IMAGE = '/api/app-mode-history-image'
+/** Deletes an image of the history for good: POST ?id= */
+export const ROUTE_APP_MODE_HISTORY_DELETE = '/api/app-mode-history-delete'
 
 // ── Static folders ──
 

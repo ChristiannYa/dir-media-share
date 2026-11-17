@@ -86,8 +86,9 @@ export const HEATMAP_FILE = path.join(DATA_DIR, 'heatmap.json')
 /**
  * The images beside the app mode pill (src/components/AppModeButton.vue): one
  * per mode, named after it in any image format (goon.png, dev.jpg…), and
- * frames.json with the part of each the pill shows. Set in Settings → App →
- * App mode images; served by server/handlers/appModeImage.ts.
+ * frames.json with the part of each the pill shows; the ones replaced or
+ * removed in history/ (listed in history.json). Changed from the popup a tap
+ * on the image opens; served by server/handlers/appModeImage.ts.
  */
 export const APP_MODE_IMAGES_DIR = path.join(DATA_DIR, 'app-mode')
 /**

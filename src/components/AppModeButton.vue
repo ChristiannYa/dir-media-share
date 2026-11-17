@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import FramedImage from '@/components/FramedImage.vue'
+import { ref } from 'vue'
+import AppModeImage from '@/components/AppModeImage.vue'
 import { appMode, toggleAppMode } from '@/appMode'
-import { APP_MODES, shownModeImage, useAppModeImages } from '@/composables/useAppModeImages'
 import { haptic } from '@/utils/haptics'
 
 /**
@@ -13,23 +12,15 @@ import { haptic } from '@/utils/haptics'
  * and in the viewer (which covers the top bar). Its background is up to the
  * parent: .theme-glass, or the viewer's dark glass on a photo.
  *
- * A small image of the mode sits on the pill's right, showing only its framed
- * part (Settings → App → App mode images); the two are one group
- * (.app-mode-group), spaced from what's beside them by the parent. The
- * parent's classes (pill size, glass) go on the pill, not the group.
+ * The mode's small round image (AppModeImage.vue) sits on the pill's right,
+ * except with `noImage` (the top bar, which shows it left of its settings
+ * button); the two are one group (.app-mode-group). The parent's classes
+ * (pill size, glass) go on the pill, not the group.
  */
 
 defineOptions({ inheritAttrs: false })
 
-useAppModeImages()
-
-/** The modes that have an image (their own or a built-in one), with it */
-const modeImages = computed(() =>
-  APP_MODES.flatMap((mode) => {
-    const image = shownModeImage(mode)
-    return image ? [{ mode, ...image }] : []
-  }),
-)
+defineProps<{ noImage?: boolean }>()
 
 const button = ref<HTMLButtonElement | null>(null)
 
@@ -79,18 +70,9 @@ function onClick() {
       </Transition>
     </span>
   </button>
-  <!-- every mode's image is loaded, stacked; the current one shows, so a
-       switch never waits for one to load. A mode without one shows nothing -->
-  <span class="mode-image" aria-hidden="true">
-    <FramedImage
-      v-for="image in modeImages"
-      :key="image.mode"
-      class="image"
-      :class="{ shown: image.mode === appMode }"
-      :src="image.src"
-      :frame="image.frame"
-    />
-  </span>
+  <!-- the mode's image on its right (the viewer); the top bar has its own,
+       left of the settings button -->
+  <AppModeImage v-if="!noImage" />
   </span>
 </template>
 
@@ -99,28 +81,6 @@ function onClick() {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-}
-
-/* the images, stacked in one square; the current one fades in */
-.mode-image {
-  display: grid;
-  flex-shrink: 0;
-  width: 1.6rem;
-  height: 1.6rem;
-}
-
-/* round: FramedImage clips the image to it */
-.image {
-  grid-area: 1 / 1;
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity 320ms ease-out;
-}
-
-.image.shown {
-  opacity: 1;
 }
 
 .app-mode {

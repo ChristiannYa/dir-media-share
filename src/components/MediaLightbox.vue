@@ -690,11 +690,6 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* the mode pill and its image, a bit further from the timer */
-.media-status .app-mode-group {
-  margin-left: 0.4rem;
-}
-
 /* photo fullscreen: the top left of the screen */
 .lightbox.fullscreen .media-status {
   position: fixed;
