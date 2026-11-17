@@ -14,9 +14,11 @@
 //   MED_HOST=christianya@10.0.0.12 npm run dev:remote
 //   MED_HOST=… npm run dev:remote -- --dry-run   (lists what would be copied or deleted, then stops)
 //
-// The host needs an SSH server, and MED_PASSWORD (and MED_ROOT, the folder to
-// share) set in its shell's startup file (e.g. ~/.zshrc): `npm run dev` there
-// is started in a login shell, which reads it.
+// The host needs an SSH server. On the host:
+// - the passcode: MED_PASSWORD if its login shell sets it, else the digits in
+//   ~/.config/med-aikotoba (MED_HOST_PASSWORD_FILE for another file)
+// - the folder to share: MED_HOST_ROOT=/path/to/media here (it becomes the
+//   host's MED_ROOT), or MED_ROOT set in the host's shell startup file
 
 import { spawn } from 'node:child_process'
 import { watch } from 'node:fs'
@@ -26,6 +28,10 @@ import path from 'node:path'
 const HOST = process.env.MED_HOST
 /** The project's folder on the host (relative paths start at the home folder) */
 const DIR = process.env.MED_HOST_DIR || 'Desktop/Websites/med'
+/** File on the host holding the passcode (digits only), if MED_PASSWORD isn't set there */
+const PASSWORD_FILE = process.env.MED_HOST_PASSWORD_FILE || '~/.config/med-aikotoba'
+/** The folder the host shares (its MED_ROOT): the media. Not set: the host's project folder */
+const ROOT_ON_HOST = process.env.MED_HOST_ROOT
 /** Only list what a sync would do */
 const DRY_RUN = process.argv.includes('--dry-run')
 /** Saves that come close together (an editor writing several files) are copied together */
@@ -128,14 +134,26 @@ const watcher = watch(ROOT, { recursive: true }, (_event, file) => {
   }, DEBOUNCE_MS)
 })
 
-// in a login shell, so the host's MED_PASSWORD / MED_ROOT are set; --host so
-// the app answers on the network, not only on the host itself
-const remote = `cd '${DIR}' && npm install --no-audit --no-fund && npm run dev -- --host`
+/** `text` as one word for a shell: in single quotes, its own single quotes escaped */
+const shellQuote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
+
+// What runs on the host, in its login shell (so its own startup files apply):
+// - the passcode from PASSWORD_FILE, unless MED_PASSWORD is already set there
+// - the folder to share, if MED_HOST_ROOT is given (else the project folder)
+// - --host: the app answers on the network, not only on the host itself
+const remote = [
+  `[ -n "$MED_PASSWORD" ] || export MED_PASSWORD="$(tr -d '[:space:]' < ${PASSWORD_FILE})"`,
+  ...(ROOT_ON_HOST ? [`export MED_ROOT=${shellQuote(ROOT_ON_HOST)}`] : []),
+  `cd ${shellQuote(DIR)}`,
+  'npm install --no-audit --no-fund',
+  'npm run dev -- --host',
+].join(' && ')
 console.log(`Starting the app on ${HOST}…`)
 
 // Ctrl+C reaches the app there through SSH's terminal; this one waits for it to stop
 process.on('SIGINT', () => {})
-const code = await run('ssh', ['-t', HOST, `exec $SHELL -lic ${JSON.stringify(remote)}`])
+// single-quoted, so only the host's shell expands the $ in it, not the one SSH starts
+const code = await run('ssh', ['-t', HOST, `exec $SHELL -lic ${shellQuote(remote)}`])
 watcher.close()
 clearTimeout(timer)
 process.exit(code)

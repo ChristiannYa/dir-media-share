@@ -127,8 +127,7 @@ onUnmounted(() => rowResize.disconnect())
       <!-- app mode: goon records and shows plays, last viewed and the heatmap; dev neither -->
       <button
         type="button"
-        class="bar-btn mode-btn"
-        :class="appMode"
+        class="bar-btn mode-btn theme-glass"
         :title="
           appMode === 'goon'
             ? 'Goon mode: views, last viewed and most watched parts are recorded and shown. Tap for dev mode'
@@ -465,26 +464,19 @@ onUnmounted(() => rowResize.disconnect())
   color: #6ea0ff;
 }
 
-/* the app mode: a small pill, pink in goon mode, green in dev mode */
-/* .bar-btn (below) sets no padding: the double class wins over it */
+/* the app mode: a small pill with the same glass as the alphabet bar's current
+   letter (.theme-glass, tokens.css) */
+/* .bar-btn (below) sets no padding and clears background and border: the
+   double class wins over it, so the glass is set back here */
 .bar-btn.mode-btn {
+  background: var(--theme-glass);
+  border: 1px solid var(--edge);
   padding: 0.1rem 0.55rem;
   border-radius: 999px;
+  color: #fff;
   font-size: 0.72rem;
   font-weight: 600;
   letter-spacing: 0.03em;
-}
-
-.mode-btn.goon {
-  color: #ff7ab6;
-  background: rgba(255, 64, 150, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(255, 122, 182, 0.35);
-}
-
-.mode-btn.dev {
-  color: #6fe0a0;
-  background: rgba(60, 220, 140, 0.12);
-  box-shadow: inset 0 0 0 1px rgba(111, 224, 160, 0.35);
 }
 
 .settings-btn:hover {
