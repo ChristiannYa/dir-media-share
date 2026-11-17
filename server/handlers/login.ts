@@ -4,6 +4,7 @@ import {
   clearFailures,
   lockoutLeft,
   newSessionEnd,
+  password,
   recordFailure,
   remainingMs,
   sessionCookie,
@@ -15,13 +16,18 @@ import { readJson, sendJson, type Handler } from '../http.ts'
 const MAX_BODY_BYTES = 1024
 
 /**
- * GET /api/session : logged in?, and ms until it locks by itself (null =
- * never). Time left rather than the end time, so a device whose clock is off
- * still counts down right. The passcode's length is never sent.
+ * GET /api/session : logged in?, ms until it locks by itself (null = never),
+ * and the passcode's length, so the lock screen can unlock as soon as it's
+ * typed. Time left rather than the end time, so a device whose clock is off
+ * still counts down right.
  */
 export const session: Handler = async (req, res) => {
   const end = sessionEnd(req)
-  sendJson(res, { unlocked: end !== null, remainingMs: end === null ? null : remainingMs(end) })
+  sendJson(res, {
+    unlocked: end !== null,
+    remainingMs: end === null ? null : remainingMs(end),
+    passcodeLength: password?.length ?? null,
+  })
 }
 
 /**

@@ -38,10 +38,12 @@ export const previewGeneration = ref(0)
 
 // ── Login ──
 
-/** Logged in?, and ms until it locks by itself (null = never) */
+/** Logged in?, ms until it locks by itself (null = never), and the passcode's length */
 export interface SessionInfo {
   unlocked: boolean
   remainingMs: number | null
+  /** Digits in the passcode; null if it isn't set */
+  passcodeLength: number | null
 }
 
 export async function fetchSession(): Promise<SessionInfo> {

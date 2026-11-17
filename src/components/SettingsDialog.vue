@@ -80,22 +80,6 @@ onMounted(() => {
 const saving = ref(false)
 const saveError = ref<string | null>(null)
 
-// ── Lock now ──
-// Forgets the login on this browser and shows the lock screen right away,
-// with the unlock animation in reverse (composables/useLock.ts)
-const locking = ref(false)
-
-async function lock() {
-  locking.value = true
-  saveError.value = null
-  try {
-    await lockNow()
-  } catch (e) {
-    saveError.value = e instanceof Error ? e.message : 'Locking failed'
-    locking.value = false
-  }
-}
-
 /** Each tab's form, name and what "Reset … to defaults" resets */
 const TABS: Array<{ id: Tab; label: string; reset: string; form: SettingsDraft }> = [
   { id: 'device', label: 'This device', reset: 'device', form: device },
@@ -486,26 +470,6 @@ async function done() {
           </div>
         </div>
       </section>
-
-      <!-- Passcode: an action, not a value, so it isn't part of Done -->
-      <section v-if="tab === 'device'" class="lock-row">
-        <div class="lock-text">
-          <span class="lock-label">Passcode</span>
-          <p class="lock-help">
-            The app locks by itself when the timer in the top bar runs out (Server → Lock
-            screen → Lock after). Lock now forgets the passcode here and asks for it again right
-            away. Other devices stay logged in; changes not saved with Done are dropped.
-          </p>
-        </div>
-        <button
-          type="button"
-          class="button small"
-          :disabled="locking || saving"
-          @click="lock"
-        >
-          {{ locking ? 'Locking…' : 'Lock now' }}
-        </button>
-      </section>
       </template>
 
       <div class="actions">
@@ -721,34 +685,6 @@ async function done() {
   background: rgba(255, 255, 255, 0.035);
   color: #999;
   font-size: 0.82rem;
-}
-
-/* ── Lock now (looks like a setting row, SettingRow.vue) ── */
-.lock-row {
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--edge-soft);
-  border-radius: 0.7rem;
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.lock-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.lock-label {
-  font-size: 0.86rem;
-  color: #e4e4e4;
-}
-
-.lock-help {
-  margin: 0.15rem 0 0;
-  color: #807a92;
-  font-size: 0.72rem;
-  line-height: 1.4;
 }
 
 /* ── Buttons ── */

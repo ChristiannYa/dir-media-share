@@ -105,8 +105,8 @@ onUnmounted(() => rowResize.disconnect())
   <nav ref="navEl" class="breadcrumb glass-bar">
     <!-- Row 1: app buttons (the file order is set in Settings → Sorting) -->
     <div class="actions">
-      <!-- time left until the app locks (nothing if it never does) -->
-      <LockTimer class="bar-timer theme-glass" />
+      <!-- time left until the app locks (nothing if it never does); double-tap to lock -->
+      <LockTimer class="bar-timer theme-glass" lockable />
       <!-- app mode: goon records and shows plays, last viewed and the heatmap; dev neither -->
       <AppModeButton class="theme-glass" />
       <!-- pushes settings and shutdown to the right end -->
@@ -428,7 +428,7 @@ onUnmounted(() => rowResize.disconnect())
   padding: 0.1rem 0.55rem;
   border-radius: 999px;
   color: #fff;
-  font-size: 0.8rem;
+  font-size: 0.72rem; /* the app mode pill's, so both pills are the same height */
 }
 
 /* takes the free space between the left (timer, mode) and right buttons */

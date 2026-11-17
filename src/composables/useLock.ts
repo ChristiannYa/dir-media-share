@@ -6,7 +6,7 @@ import { captureResume } from '@/composables/useResume'
 /**
  * Whether the lock screen or the gallery is shown (Root.vue), the countdown
  * until the app locks by itself, and locking from inside the gallery
- * (Settings → This device → Lock now).
+ * (double-tapping the lock timer in the top bar).
  */
 
 export type LockState = 'checking' | 'locked' | 'unlocked'

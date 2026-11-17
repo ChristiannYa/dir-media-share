@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { login } from '@/api'
+import { fetchSession, login } from '@/api'
 import { haptic } from '@/utils/haptics'
 
 /**
- * iOS 7 style passcode screen: round number keys with their letters, OK and
- * Delete. The passcode's length is never known here (the server doesn't say),
- * so nothing gives it away: the row above the keys starts empty, and each
- * typed digit adds a geometric figure of its own, which appears as a small
- * circle, grows, and morphs into its shape. The figures are picked at
- * random, not by digit, so someone looking over your shoulder learns nothing
- * from them. OK (or Enter) sends the passcode; a wrong one shakes the
- * figures and clears them. After too many misses the server makes it wait,
- * and the title counts down.
+ * iOS 7 style passcode screen: round number keys with their letters, and
+ * Delete. The row above the keys starts empty, and each typed digit adds a
+ * geometric figure of its own, which appears as a small circle, grows, and
+ * morphs into its shape. The figures are picked at random, not by digit, so
+ * someone looking over your shoulder learns nothing from them. The server
+ * says how long the passcode is, and it's sent as soon as its last digit is
+ * typed (if the length couldn't be fetched, OK or Enter sends it instead); a
+ * wrong one shakes the figures and clears them. After too many misses the
+ * server makes it wait, and the title counts down.
  */
 
 /** `remainingMs`: until the app locks by itself (null = never) */
@@ -170,11 +170,19 @@ const title = computed(() => {
     : `Try again in ${Math.ceil(waitLeft.value / 1000)} s`
 })
 
+/** Digits in the passcode; null until known (OK is then shown instead) */
+const passcodeLength = ref<number | null>(null)
+
 function press(digit: string) {
-  if (busy.value || waitLeft.value > 0 || entered.value.length >= MAX_DIGITS) return
+  const max = passcodeLength.value ?? MAX_DIGITS
+  if (busy.value || waitLeft.value > 0 || entered.value.length >= max) return
   haptic('tap')
   entered.value += digit
   figures.value.push({ id: nextId++, shape: pickShape() })
+  if (entered.value.length === passcodeLength.value) {
+    busy.value = true // no more keys while it's checked
+    void send()
+  }
 }
 
 function remove() {
@@ -185,8 +193,12 @@ function remove() {
 
 async function submit() {
   if (busy.value || waitLeft.value > 0 || !entered.value) return
-  haptic('tap')
   busy.value = true
+  await send()
+}
+
+async function send() {
+  haptic('tap')
   const result = await login(entered.value).catch(() => ({ ok: false as const, retryAfter: 0 }))
   if (result.ok) {
     emit('unlocked', result.remainingMs)
@@ -212,7 +224,10 @@ function onKeydown(e: KeyboardEvent) {
   else if (e.key === 'Backspace') remove()
   else if (e.key === 'Enter') void submit()
 }
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(async () => {
+  window.addEventListener('keydown', onKeydown)
+  passcodeLength.value = (await fetchSession().catch(() => null))?.passcodeLength ?? null
+})
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   clearInterval(tick)
@@ -248,12 +263,38 @@ onUnmounted(() => {
         <span class="digit">{{ k.digit }}</span>
         <span v-if="k.letters" class="letters">{{ k.letters }}</span>
       </button>
-      <button v-if="entered.length" class="text-btn ok" type="button" @click="submit">OK</button>
+      <button
+        v-if="entered.length && passcodeLength === null"
+        class="text-btn ok"
+        type="button"
+        @click="submit"
+      >
+        OK
+      </button>
       <button class="key zero" type="button" @click="press('0')">
         <span class="digit">0</span>
       </button>
-      <button v-if="entered.length" class="text-btn delete" type="button" @click="remove">
-        Delete
+      <button
+        v-if="entered.length"
+        class="text-btn delete"
+        type="button"
+        aria-label="Delete"
+        @click="remove"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="30"
+          height="30"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M9 5h11a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-7-7z" />
+          <path d="m12 9 6 6M18 9l-6 6" />
+        </svg>
       </button>
     </div>
   </div>
@@ -407,5 +448,7 @@ onUnmounted(() => {
 
 .delete {
   grid-column: 3;
+  display: grid;
+  place-items: center;
 }
 </style>
