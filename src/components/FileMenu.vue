@@ -19,7 +19,7 @@ import {
 } from '@/constants'
 import {
   ICON_COMPRESS,
-  ICON_CROP,
+  ICON_EDIT,
   ICON_FIX,
   ICON_FOLDER_MOVE,
   ICON_RENAME,
@@ -94,7 +94,7 @@ const fixItem: MenuItem = {
 const editItem: MenuItem = isEditable(props.entry)
   ? {
       label: EDIT_LABEL,
-      icon: ICON_CROP,
+      icon: ICON_EDIT,
       row: 'tools',
       async run() {
         editing.value = true
