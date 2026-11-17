@@ -1,0 +1,20 @@
+{
+  "sortBy": "quality",
+  "mostPlayedCount": 6,
+  "viewAfterSeconds": 5,
+  "loopVideos": true,
+  "controlsHideDelayMs": 2500,
+  "cardRadius": 1.25,
+  "cardBorder": 0,
+  "ringWidth": 2,
+  "cardGlassWidth": 0,
+  "ringVibrancy": 3,
+  "glassOpacity": 0.5,
+  "folderDarknessRatio": 0.2,
+  "badgeDarkness": 0.1,
+  "badgeGlassRatio": 0.05,
+  "lightboxDarkness": 0.4,
+  "lightboxRingWidth": 2,
+  "bgBrightness": 1.5,
+  "bgDriftSeconds": 0
+}

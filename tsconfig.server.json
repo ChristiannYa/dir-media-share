@@ -1,0 +1,21 @@
+// TSConfig for the backend in server/. It runs directly with Node's built-in
+// type stripping (no build step), so only syntax Node can strip is allowed.
+{
+  "extends": "@tsconfig/node24/tsconfig.json",
+  "include": ["server/**/*.ts"],
+  "compilerOptions": {
+    // Node needs real file extensions in imports ("./consts/routes.ts")
+    "allowImportingTsExtensions": true,
+    // Reject enums, namespaces, parameter properties: Node can't strip them
+    "erasableSyntaxOnly": true,
+    // Forces `import type` for type-only imports, which Node removes
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true,
+
+    "types": ["node"],
+
+    // Type-checking only (`npm run type-check`); Node runs the .ts files itself
+    "noEmit": true,
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.server.tsbuildinfo"
+  }
+}

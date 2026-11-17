@@ -1,0 +1,38 @@
+import { sendJson, type Handler } from '../http.ts'
+import { cancelJobs, onJob } from '../jobEvents.ts'
+
+/** Comment line sent now and then so proxies and browsers keep the stream open */
+const KEEPALIVE_MS = 25_000
+
+/**
+ * GET /api/jobs/events : a Server-Sent Events stream of preview build progress
+ * (queued / encoding / done / failed / cancelled). The page keeps one open for all cards.
+ */
+export const jobEvents: Handler = async (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-store',
+    Connection: 'keep-alive',
+  })
+  res.write(': connected\n\n')
+
+  const stop = onJob((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
+  const keepalive = setInterval(() => res.write(': ping\n\n'), KEEPALIVE_MS)
+  req.on('close', () => {
+    stop()
+    clearInterval(keepalive)
+  })
+}
+
+/**
+ * POST /api/jobs/cancel?kind=video|folder&path= : the page's card for this
+ * preview left the screen before it was built: stops its build, queued or
+ * encoding, so the encoders go to the previews on screen. Pages still waiting
+ * for it get "cancelled" and ask again. Answers `{ cancelled }`, how many
+ * builds were stopped.
+ */
+export const cancelJob: Handler = async (_req, res, url) => {
+  const kind = url.searchParams.get('kind')
+  if (kind !== 'video' && kind !== 'folder') return sendJson(res, { error: 'Unknown kind' }, 400)
+  sendJson(res, { cancelled: cancelJobs(kind, url.searchParams.get('path') ?? '') })
+}

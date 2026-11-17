@@ -1,0 +1,68 @@
+/* ── Rainbow (Damascus-style) border + glow ──
+   Add `rainbow-frame` to an element to give it a spinning rainbow ring and a
+   soft colored shadow. Components can override `animation-duration` or
+   `animation-play-state` (grid cards only spin while loading).
+
+   The ring is drawn outside the element. Set on the element:
+     --ring-width   thickness of the ring (default from tokens.css)
+     --ring-radius  the element's own corner radius, so the ring's corners
+                    stay parallel to it
+     --ring-inset   the element's border width, so the ring starts outside it */
+
+@property --rainbow-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes rainbow-spin {
+  to {
+    --rainbow-angle: 360deg;
+  }
+}
+
+.rainbow-frame {
+  --rainbow: conic-gradient(
+    from var(--rainbow-angle),
+    #ff0040,
+    #ff8c00,
+    #ffe600,
+    #00ff6a,
+    #00d5ff,
+    #5a3cff,
+    #d400ff,
+    #ff0040
+  );
+  position: relative;
+  isolation: isolate;
+  animation: rainbow-spin 6s linear infinite;
+}
+
+/* sharp ring */
+.rainbow-frame::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * (var(--ring-inset, 0px) + var(--ring-width, 1px)));
+  border-radius: calc(var(--ring-radius, 0px) + var(--ring-width, 1px));
+  background: var(--rainbow);
+  z-index: -1;
+}
+
+/* soft colored shadow */
+.rainbow-frame::after {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * (var(--ring-inset, 0px) + var(--ring-width, 1px)));
+  border-radius: calc(var(--ring-radius, 0px) + var(--ring-width, 1px));
+  background: var(--rainbow);
+  filter: blur(14px);
+  opacity: var(--ring-glow-opacity, 0.55);
+  z-index: -1;
+  transition: opacity 0.2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rainbow-frame {
+    animation: none;
+  }
+}

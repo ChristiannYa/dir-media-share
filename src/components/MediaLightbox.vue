@@ -1,0 +1,846 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import LockTimer from '@/components/LockTimer.vue'
+import NightSky from '@/components/NightSky.vue'
+import VideoPlayer from '@/components/VideoPlayer.vue'
+import { fileUrl, storyboardUrl, thumbUrl } from '@/api'
+import { useAutoHide } from '@/composables/useAutoHide'
+import { onCaptureResume, takeViewerResume, type ViewerResume } from '@/composables/useResume'
+import { settings } from '@/settings'
+import type { Entry } from '@/types'
+import { formatQuality } from '@/utils/format'
+import { haptic } from '@/utils/haptics'
+
+/**
+ * The opened photo or video, full size, with a carousel of the folder's other
+ * photos and videos under it to go through them: tap one, PageUp /
+ * PageDown, or for photos the arrow keys and a sideways swipe (a
+ * video's arrow keys and taps are its player's: skipping, seeking). A
+ * counter at the top of the photo / video shows which item it is.
+ *
+ * Photos also get a fullscreen button at their bottom right (videos have
+ * their player's own). It and the counter are hidden until the middle of the
+ * photo is tapped (on a video: any tap, with the player's controls). In
+ * fullscreen, going to the next / previous skips the videos (a video's taps
+ * and swipes are its player's) and loops from the last photo to the first;
+ * the counter then counts the photos. They fade out like the player's
+ * controls (Settings → Full screen).
+ *
+ * The time left until the app locks (the top bar's timer, which the viewer
+ * covers) sits at the top left of the photo / video, in photo fullscreen of
+ * the screen. Any tap, mouse move or key shows it, and it fades like the
+ * player's controls. In video fullscreen the player shows its own, with its
+ * controls.
+ */
+const props = defineProps<{
+  entry: Entry | null
+  /** The folder's photos and videos, in the grid's order */
+  entries: Entry[]
+}>()
+const emit = defineEmits<{
+  close: []
+  select: [entry: Entry]
+  /** The video started playing, or the photo loaded: it counts as viewed ("last viewed") */
+  viewed: [entry: Entry]
+}>()
+
+const root = ref<HTMLElement | null>(null)
+const strip = ref<HTMLElement | null>(null)
+
+const index = computed(() =>
+  props.entry ? props.entries.findIndex((e) => e.path === props.entry?.path) : -1,
+)
+/** The folder's photos, which photo fullscreen goes through */
+const photos = computed(() => props.entries.filter((e) => e.kind === 'image'))
+const photoIndex = computed(() =>
+  props.entry ? photos.value.findIndex((e) => e.path === props.entry?.path) : -1,
+)
+
+/**
+ * The item before (-1) or after (1) the current one. In photo fullscreen it's
+ * the photo before / after, looping round at the ends: there a video couldn't
+ * be swiped away from.
+ */
+function neighbor(step: -1 | 1): Entry | undefined {
+  if (fullscreen.value) {
+    const n = photos.value.length
+    if (photoIndex.value < 0 || n < 2) return undefined
+    return photos.value[(photoIndex.value + step + n) % n]
+  }
+  return index.value >= 0 ? props.entries[index.value + step] : undefined
+}
+
+const prev = computed(() => neighbor(-1))
+const next = computed(() => neighbor(1))
+
+/** Goes to another item (swipe, arrow / page keys, a carousel thumbnail), with a tap of haptics */
+function go(to: Entry | undefined) {
+  if (!to || to.path === props.entry?.path) return
+  haptic('tap')
+  emit('select', to)
+}
+
+// ── Keys ──
+
+function onKeydown(e: KeyboardEvent) {
+  if (!props.entry) return
+  const isImage = props.entry.kind === 'image'
+  if (e.key === 'PageUp' || (isImage && e.key === 'ArrowLeft')) go(prev.value)
+  else if (e.key === 'PageDown' || (isImage && e.key === 'ArrowRight')) go(next.value)
+  else if (isImage && e.key === 'f') toggleFullscreen()
+  else if (isImage && fullscreen.value && e.key === 'r') rotate()
+  else return
+  e.preventDefault()
+}
+
+// ── Swipe (photos) ──
+
+/** Sideways distance (px) a swipe needs to go to the next / previous photo */
+const SWIPE_PX = 50
+/** Most a press may move (px) and still count as a tap */
+const TAP_PX = 10
+/** Middle part of the photo (of its width and height) where a tap shows the buttons */
+const CENTER_TAP_ZONE = 0.5
+let swipeStart: { x: number; y: number } | null = null
+
+function onSwipeStart(e: PointerEvent) {
+  swipeStart = { x: e.clientX, y: e.clientY }
+}
+
+function onSwipeEnd(e: PointerEvent) {
+  if (!swipeStart) return
+  const dx = e.clientX - swipeStart.x
+  const dy = e.clientY - swipeStart.y
+  swipeStart = null
+  if (Math.abs(dx) <= TAP_PX && Math.abs(dy) <= TAP_PX) {
+    onPhotoTap(e)
+    return
+  }
+  if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy)) return
+  go(dx < 0 ? next.value : prev.value)
+}
+
+/** Carousel: a tap in the middle of the photo shows (or hides again) its buttons and the counter */
+function onPhotoTap(e: PointerEvent) {
+  if (fullscreen.value) return // there any tap already shows them (onActivity)
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const x = (e.clientX - rect.left) / rect.width
+  const y = (e.clientY - rect.top) / rect.height
+  const edge = (1 - CENTER_TAP_ZONE) / 2
+  if (x >= edge && x <= 1 - edge && y >= edge && y <= 1 - edge) toggleOverlay()
+}
+
+function onSwipeCancel() {
+  swipeStart = null
+}
+
+// ── Fullscreen (photos) ──
+
+const canFullscreen = document.fullscreenEnabled
+const fullscreen = ref(false)
+
+function toggleFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  else root.value?.requestFullscreen().catch(() => {})
+}
+
+function onFullscreenChange() {
+  fullscreen.value = document.fullscreenElement !== null && document.fullscreenElement === root.value
+  if (fullscreen.value) {
+    showOverlay()
+  } else {
+    rotation.value = 0
+    hideOverlay() // back in the carousel: hidden until the photo is tapped
+  }
+}
+
+/**
+ * Turn of the photo in fullscreen (0, 90, 180, 270°, clockwise), for photos
+ * saved sideways. It stays while going through the photos (a series is
+ * usually shot the same way) and is undone on leaving fullscreen.
+ */
+const rotation = ref(0)
+
+function rotate() {
+  rotation.value = (rotation.value + 90) % 360
+}
+
+const sideways = computed(() => fullscreen.value && rotation.value % 180 !== 0)
+
+/**
+ * The photo's buttons (fullscreen, rotate), and in fullscreen the counter.
+ * They fade out after the player's "Hide controls after". In the carousel
+ * they start hidden and a tap in the middle of the photo shows them; in
+ * fullscreen any move, tap or key does
+ */
+const {
+  visible: overlayVisible,
+  show: showOverlay,
+  hide: hideOverlay,
+  toggle: toggleOverlay,
+} = useAutoHide(() => settings.controlsHideDelayMs)
+hideOverlay()
+const buttonsHidden = computed(() => !overlayVisible.value)
+/** Fullscreen only: the counter and the mouse pointer go too */
+const overlayHidden = computed(() => fullscreen.value && !overlayVisible.value)
+
+/**
+ * The lock timer: like the player's controls, it shows on any tap, mouse
+ * move or key in the viewer (and when an item opens), and fades after
+ * "Hide controls after". Not tied to the photo's buttons, which in the
+ * carousel only a tap in the middle of the photo brings up
+ */
+const { visible: timerVisible, show: showTimer } = useAutoHide(
+  () => settings.controlsHideDelayMs,
+)
+
+/** Which item this is: of all of them, or in photo fullscreen of the photos; '' if only one */
+const counterText = computed(() => {
+  if (fullscreen.value) {
+    return photos.value.length > 1 ? `${photoIndex.value + 1} / ${photos.value.length}` : ''
+  }
+  return index.value >= 0 && props.entries.length > 1
+    ? `${index.value + 1} / ${props.entries.length}`
+    : ''
+})
+
+function onActivity() {
+  showTimer()
+  if (fullscreen.value) showOverlay()
+}
+
+function close() {
+  if (document.fullscreenElement === root.value) document.exitFullscreen().catch(() => {})
+  emit('close')
+}
+
+// ── Coming back after a lock (useResume) ──
+
+// photo fullscreen and its turn; the player notes the video's own part
+onCaptureResume(() => ({ photoFullscreen: fullscreen.value, rotation: rotation.value }))
+
+/**
+ * Handed to the player when the video that was open at the lock opens again:
+ * its time, paused or not, fullscreen or not. Null for any other item
+ */
+const videoResume = ref<ViewerResume | null>(null)
+
+/** Back to photo fullscreen, turned as it was (the unlock's tap still counts as the gesture fullscreen needs) */
+function resumePhoto(resume: ViewerResume) {
+  if (!resume.photoFullscreen || !canFullscreen) return
+  root.value
+    ?.requestFullscreen()
+    .then(() => (rotation.value = resume.rotation))
+    .catch(() => {
+      // refused (too long since the tap): the photo stays in the carousel
+    })
+}
+
+// ── Carousel ──
+
+/** The item now opening was picked by sliding the strip (Scrolling the carousel, below) */
+let stripDriven = false
+
+/** Keeps the current item in the middle of the carousel */
+watch(
+  () => props.entry?.path,
+  async (path) => {
+    if (!path) return
+    // opened by sliding the strip: its thumbnail is already in the middle,
+    // and gliding the strip there would fight the finger
+    const fromStrip = stripDriven
+    stripDriven = false
+    // the item open when the app locked: put back how it was shown. Taken
+    // before the player is drawn, so it gets its part from the start
+    const resume = takeViewerResume(path)
+    videoResume.value = resume && props.entry?.kind === 'video' ? resume : null
+    // in the carousel each photo starts with its buttons hidden; the lock
+    // timer shows for a moment, so it's seen when the viewer opens
+    if (!fullscreen.value) hideOverlay()
+    showTimer()
+    await nextTick()
+    if (resume && props.entry?.kind === 'image') resumePhoto(resume)
+    if (fromStrip) return
+    strip.value
+      ?.querySelector<HTMLElement>(`.thumb[data-path="${CSS.escape(path)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+  },
+  { immediate: true },
+)
+
+// ── Scrolling the carousel ──
+// Like a picker: the thumbnail in the middle of the strip is the one shown,
+// and it changes the moment another one reaches the middle while you slide
+// it (each passing video starts loading; the one before stops). Only when
+// you move the strip (finger, mouse wheel, and its glide after you let go):
+// when it glides by itself to an item opened another way (a swipe on the
+// photo, keys, a tapped thumbnail), the ones it passes don't open.
+
+/** How long the strip must be still to count as stopped (ms) */
+const STRIP_SETTLE_MS = 150
+
+/** The thumbnail in the middle of the strip right now (null: not scrolled yet) */
+const centeredPath = ref<string | null>(null)
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+/** The strip is moving because you moved it (until it stops) */
+let userScrolling = false
+
+/** A finger, mouse or wheel on the strip: the scrolling that follows is yours */
+function onStripInput() {
+  userScrolling = true
+}
+
+/** A tapped thumbnail: the strip then glides there by itself */
+function onThumbClick(item: Entry) {
+  userScrolling = false
+  go(item)
+}
+
+/** Opens the item whose thumbnail is in the middle, picked by sliding */
+function openCentered(path: string) {
+  if (path === props.entry?.path) return
+  const item = props.entries.find((e) => e.path === path)
+  if (!item) return
+  stripDriven = true
+  go(item)
+}
+
+/** The item whose thumbnail is closest to the strip's middle */
+function middleThumbPath(): string | null {
+  const row = strip.value
+  if (!row) return null
+  const rect = row.getBoundingClientRect()
+  const middle = rect.left + rect.width / 2
+  let best: string | null = null
+  let bestDistance = Infinity
+  for (const el of row.querySelectorAll<HTMLElement>('.thumb')) {
+    const r = el.getBoundingClientRect()
+    const distance = Math.abs(r.left + r.width / 2 - middle)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = el.dataset.path ?? null
+    }
+  }
+  return best
+}
+
+function onStripScroll() {
+  const path = middleThumbPath()
+  if (path !== centeredPath.value) {
+    centeredPath.value = path
+    // you're sliding it: the one reaching the middle opens right away
+    if (userScrolling && path) openCentered(path)
+  }
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(onStripSettle, STRIP_SETTLE_MS)
+}
+
+/** The strip stopped: the next movement is yours again only once you touch it */
+function onStripSettle() {
+  const path = centeredPath.value
+  if (userScrolling && path) openCentered(path)
+  userScrolling = false
+}
+
+/** Lit up in the strip: the one passing the middle while it moves, else the open one */
+function isLit(item: Entry): boolean {
+  return item.path === (centeredPath.value ?? props.entry?.path)
+}
+
+// a new item opened (swipe, keys, the strip): the strip glides to it, and
+// it's the lit one from the start
+watch(
+  () => props.entry?.path,
+  (path) => (centeredPath.value = path ?? null),
+)
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('keydown', onActivity)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('keydown', onActivity)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
+  clearTimeout(settleTimer)
+})
+</script>
+
+<template>
+  <Transition name="fade">
+    <div
+      v-if="entry"
+      ref="root"
+      class="lightbox force-glass"
+      :class="{
+        fullscreen,
+        'buttons-hidden': buttonsHidden,
+        'overlay-hidden': overlayHidden,
+        'timer-hidden': !timerVisible,
+      }"
+      @click.self="close"
+      @pointermove="onActivity"
+      @pointerdown="onActivity"
+    >
+      <!-- photo fullscreen: the night sky around the photo instead of black -->
+      <NightSky v-if="fullscreen" ignore-pause />
+
+      <div class="top-buttons">
+        <button class="round-btn" aria-label="Close" @click="close">✕</button>
+      </div>
+
+      <!-- :key: a new player (or image) for each item, starting fresh -->
+      <!-- a tap on a video shows the counter along with the player's own controls -->
+      <div
+        :key="entry.path"
+        class="lightbox-frame ring-frame"
+        @pointerdown="entry.kind === 'video' && showOverlay()"
+      >
+        <!-- which item this is, at the top middle of the photo / video (in
+             photo fullscreen: of the screen, counting the photos) -->
+        <p v-if="counterText" class="media-counter">{{ counterText }}</p>
+        <!-- time left until the app locks, at the top left; on a video in the
+             player's colored glass, like its buttons -->
+        <LockTimer class="media-timer" :class="{ 'theme-glass': entry.kind === 'video' }" />
+        <img
+          v-if="entry.kind === 'image'"
+          :src="fileUrl(entry.path)"
+          :alt="entry.name"
+          draggable="false"
+          :class="{ rotated: fullscreen && rotation !== 0, sideways }"
+          :style="fullscreen && rotation !== 0 ? { '--rotation': `${rotation}deg` } : undefined"
+          @load="emit('viewed', entry)"
+          @pointerdown="onSwipeStart"
+          @pointerup="onSwipeEnd"
+          @pointercancel="onSwipeCancel"
+        />
+        <!-- fullscreen: turns the photo a quarter clockwise, left of the fullscreen button -->
+        <button
+          v-if="entry.kind === 'image' && fullscreen"
+          class="round-btn fullscreen-btn rotate-btn"
+          aria-label="Rotate"
+          title="Rotate (r)"
+          @click="rotate"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M15.55 5.55 11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42 1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"
+            />
+          </svg>
+        </button>
+        <!-- over the photo's bottom-right corner -->
+        <button
+          v-if="entry.kind === 'image' && canFullscreen"
+          class="round-btn fullscreen-btn"
+          :aria-label="fullscreen ? 'Exit fullscreen' : 'Fullscreen'"
+          :title="fullscreen ? 'Exit fullscreen (f)' : 'Fullscreen (f)'"
+          @click="toggleFullscreen"
+        >
+          <svg v-if="fullscreen" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
+          </svg>
+        </button>
+        <VideoPlayer
+          v-if="entry.kind === 'video'"
+          :src="fileUrl(entry.path)"
+          :path="entry.path"
+          :poster="thumbUrl(entry.path)"
+          :storyboard="storyboardUrl(entry.path)"
+          :quality="formatQuality(entry.width, entry.height, entry.fps)"
+          :resume="videoResume"
+          :aspect="entry.width && entry.height ? entry.width / entry.height : null"
+          @played="emit('viewed', entry)"
+        />
+      </div>
+
+      <!-- carousel: every photo and video of the folder, under the photo /
+           video; the one in its middle is the one shown -->
+      <div
+        v-if="entries.length > 1"
+        ref="strip"
+        class="strip"
+        @scroll.passive="onStripScroll"
+        @pointerdown="onStripInput"
+        @touchstart.passive="onStripInput"
+        @wheel.passive="onStripInput"
+      >
+        <button
+          v-for="item in entries"
+          :key="item.path"
+          type="button"
+          class="thumb"
+          :class="{ current: isLit(item) }"
+          :data-path="item.path"
+          :title="item.name"
+          @click="onThumbClick(item)"
+        >
+          <img
+            :src="item.kind === 'image' ? fileUrl(item.path) : thumbUrl(item.path)"
+            :alt="item.name"
+            loading="lazy"
+            draggable="false"
+          />
+          <span v-if="item.kind === 'video'" class="thumb-play" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+          </span>
+        </button>
+      </div>
+    </div>
+  </Transition>
+</template>
+
+<style scoped>
+.lightbox {
+  /* what the photo / video may fill, leaving room for the carousel (the
+     player reads it too: VideoPlayer.vue) */
+  --media-max-height: calc(100dvh - 10rem);
+  /* the screen's width minus the side padding below (the player's 16:9 box
+     can't use 100%: the frame around it is only as wide as its content) */
+  --media-max-width: calc(100vw - 4rem);
+  position: fixed;
+  inset: 0;
+  /* the gallery shows faintly through, frosted like the top bar (Settings →
+     Look → Viewer background darkness). Always frosted, even with Glass
+     effect off (.force-glass, tokens.css): what's behind is paused meanwhile */
+  background: rgba(0, 0, 0, var(--lightbox-darkness));
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  backdrop-filter: blur(16px) saturate(140%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 2rem 2rem 1rem;
+  box-sizing: border-box;
+  cursor: zoom-out;
+}
+
+/* ring in the theme colors from styles/ring.css */
+.lightbox-frame {
+  /* its own ring, independent of the grid's --ring-width (Settings → Look →
+     Viewer border). No padding: the ring's colors would show through it as
+     a thicker border. Same corners as the photo / player inside, so none
+     shows at them either */
+  --ring-width: var(--lightbox-ring-width);
+  --ring-radius: 6px;
+  position: relative; /* for the fullscreen button over the photo */
+  display: flex;
+  border-radius: 6px;
+  max-width: 100%;
+  cursor: default;
+}
+
+.lightbox-frame img {
+  max-width: 100%;
+  max-height: var(--media-max-height);
+  object-fit: contain;
+  border-radius: 6px;
+  cursor: default;
+  /* a sideways swipe goes to the next photo instead of scrolling */
+  touch-action: pan-y pinch-zoom;
+  user-select: none;
+}
+
+/* ── Buttons ── */
+.top-buttons {
+  position: absolute;
+  z-index: 5; /* stay above the video player */
+  top: 1.25rem;
+  right: 1.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.round-btn {
+  background: #222;
+  border: 1px solid var(--edge);
+  box-shadow: var(--edge-shine);
+  color: #aaa;
+  font-size: 1rem;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.round-btn:hover {
+  background: #333;
+  color: #fff;
+}
+
+.round-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: currentColor;
+}
+
+/* on the photo: see-through, so it doesn't hide much of it */
+.fullscreen-btn {
+  position: absolute;
+  z-index: 2; /* above the ring */
+  right: 0.6rem;
+  bottom: 0.6rem;
+  width: 2.2rem;
+  height: 2.2rem;
+  background: rgba(0, 0, 0, 0.45);
+  color: #ddd;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.fullscreen-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* fullscreen: pinned to the screen's bottom-right corner, always on screen */
+.lightbox.fullscreen .fullscreen-btn {
+  position: fixed;
+  right: 1rem;
+  /* above the phone's gesture bar */
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* just left of the fullscreen button (its width + a gap) */
+.lightbox.fullscreen .rotate-btn {
+  right: calc(1rem + 2.2rem + 0.5rem);
+}
+
+/* turned photo: centered and rotated around its middle. Turned sideways,
+   its box gets the screen's height as width and the width as height, so
+   once turned it fits the screen exactly as an upright photo would */
+.lightbox.fullscreen .lightbox-frame img.rotated {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(var(--rotation));
+}
+
+.lightbox.fullscreen .lightbox-frame img.sideways {
+  width: 100dvh;
+  height: 100dvw;
+}
+
+/* ── Counter, and fading the overlay ── */
+/* at the top middle of the photo / video, above the player */
+.media-counter {
+  position: absolute;
+  z-index: 5;
+  top: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #ddd;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* photo fullscreen: pinned to the top middle of the screen, like the buttons */
+.lightbox.fullscreen .media-counter {
+  position: fixed;
+  top: 1rem;
+}
+
+/* the lock countdown: a pill at the top left of the photo / video */
+.media-timer {
+  position: absolute;
+  z-index: 5;
+  top: 0.6rem;
+  left: 0.6rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+/* on a photo: dark, like the counter and the photo's buttons */
+.media-timer:not(.theme-glass) {
+  background: rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  color: #ddd;
+}
+
+/* on a video: .theme-glass (tokens.css) gives the glass; the text like the
+   player's time pill */
+.media-timer.theme-glass {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* photo fullscreen: the top left of the screen */
+.lightbox.fullscreen .media-timer {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+}
+
+.fullscreen-btn,
+.media-counter,
+.media-timer {
+  transition:
+    opacity 0.3s,
+    background 0.15s,
+    color 0.15s;
+}
+
+/* faded out: can't be clicked either (the tap that brings them back doesn't
+   press the button) */
+.lightbox.buttons-hidden .fullscreen-btn,
+.lightbox.buttons-hidden .media-counter,
+.lightbox.timer-hidden .media-timer {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* the mouse pointer goes away with them */
+.lightbox.overlay-hidden,
+.lightbox.overlay-hidden * {
+  cursor: none;
+}
+
+/* ── Carousel ── */
+/* A picker: the thumbnail in the middle is the one shown. As wide as the
+   viewer, with half of it (less half a thumbnail) as padding on each side, so
+   the first and last thumbnails can reach the middle too; it always comes to
+   rest exactly on one (mandatory snap). Fades out toward the ends */
+.strip {
+  display: flex;
+  gap: 0.4rem;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.8rem;
+  padding: 0.3rem calc(50% - 1.75rem);
+  overflow-x: auto;
+  cursor: default;
+  scroll-snap-type: x mandatory;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 15%, #000 85%, transparent);
+}
+
+.thumb {
+  position: relative;
+  flex: none;
+  width: 3.5rem;
+  height: 3.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 0.5rem;
+  background: #111;
+  overflow: hidden;
+  cursor: pointer;
+  opacity: 0.5;
+  scroll-snap-align: center;
+  transition: opacity 0.15s;
+}
+
+.thumb:hover {
+  opacity: 0.85;
+}
+
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* the one on screen: full strength, in the theme's ring colors */
+.thumb.current {
+  opacity: 1;
+  box-shadow:
+    0 0 0 2px var(--theme-cyan),
+    0 0 10px 1px color-mix(in srgb, var(--theme-purple) 60%, transparent);
+}
+
+.thumb-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.thumb-play svg {
+  width: 1.2rem;
+  height: 1.2rem;
+  fill: #fff;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+/* ── Photo fullscreen: the photo fills the screen, the rest steps aside ── */
+/* not black around a photo that doesn't fill the screen, but the night sky,
+   like the lock screen: the viewer's own NightSky (in the template), behind
+   the photo. No darkening or blur: there's nothing of the gallery to frost */
+.lightbox.fullscreen {
+  --media-max-height: 100dvh;
+  padding: 0;
+  background: var(--page-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.lightbox.fullscreen .lightbox-frame::before {
+  display: none; /* no ring */
+}
+
+/* the frame covers the whole screen and the photo is fitted inside it, so no
+   photo can come out taller or wider than the screen whatever its shape (in
+   the normal flow, some pushed the counter and the button off the screen) */
+.lightbox.fullscreen .lightbox-frame {
+  position: absolute;
+  inset: 0;
+  max-width: none;
+  border-radius: 0;
+}
+
+.lightbox.fullscreen .lightbox-frame img {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  border-radius: 0;
+}
+
+/* only the button at the photo's bottom right leaves fullscreen */
+.lightbox.fullscreen .top-buttons,
+.lightbox.fullscreen .strip {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  .lightbox {
+    --media-max-width: calc(100vw - 1rem);
+    padding: 3.5rem 0.5rem 0.75rem;
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>

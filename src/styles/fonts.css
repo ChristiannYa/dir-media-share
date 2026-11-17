@@ -1,0 +1,37 @@
+/* ── Fonts served by the app itself ──
+   Files in public/fonts/ (served at /fonts/), so every device gets them, not
+   only the computer they're installed on. Pick the font in Settings → Look →
+   Font (APP_FONTS in src/constants.ts lists the choices).
+   Shantell Sans comes from Google Fonts instead (index.html). */
+
+@font-face {
+  font-family: 'Comic Code';
+  src: url('/fonts/comic-code/ComicCode-Regular.otf') format('opentype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Comic Code';
+  src: url('/fonts/comic-code/ComicCode-Medium.otf') format('opentype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Comic Code';
+  src: url('/fonts/comic-code/ComicCode-Semibold.otf') format('opentype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Comic Code';
+  src: url('/fonts/comic-code/ComicCode-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}

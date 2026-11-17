@@ -1,0 +1,193 @@
+/* ── Shared design values ──
+   Change these here and every place that depends on them follows.
+   The first three, --glass-opacity, --topbar-darkness and
+   --folder-darkness-ratio are also in the app's Settings
+   ("Look"): keep the defaults in src/settings.ts (DEFAULT_SETTINGS) equal to
+   the values here. (The night sky's brightness and drift are read straight
+   from the settings by NightSky.vue. The
+   "Loading ring spin" and "Glass effect" switches put .no-ring-spin /
+   .no-glass on <html> while off: styles/ring.css, below.) */
+
+:root {
+  /* Grid card corners. The media inside, and the loading dots' path, are
+     derived from these so they always line up with the card's edge. */
+  --card-radius: 1rem;
+  /* The card's own thin outline (folders show it; on images and videos it is
+     transparent). Taken from inside the card, so a bigger value shrinks the
+     media. For a thicker ring use --ring-width instead. */
+  --card-border: 1px;
+
+  /* Thickness of the faint ring around image and video cards (styles/ring.css).
+     Drawn outside the card, so the media keeps its size; the grid gap grows
+     to match. */
+  --ring-width: 1px;
+  /* How saturated the ring's theme colors are (Settings → Look → Ring
+     vibrancy): 1 = as defined, 0 = grey, above 1 = more vivid */
+  --ring-vibrancy: 1;
+
+  /* Frosted glass border around folder and video cards (GalleryCard.vue),
+     outside the ring, the same glass as the badges (.badge-glass): the sky
+     shows through it, blurred (Settings → Look → Glass border width; 0 = none) */
+  --card-glass-width: 6px;
+  /* How far a card's ring and glass border reach past its edge: the grid's
+     gaps grow by this (App.vue) */
+  --card-outset: calc(var(--ring-width) + var(--card-glass-width));
+
+  /* Theme colors: brighter versions of the night sky's nebula clouds
+     (NightSky.vue) and the top bar's tint. The ring around images and videos
+     (styles/ring.css) fades from one to the next, and the loading dots
+     (LoadingDots.vue) cycle through them */
+  --theme-purple: #9b4dff;
+  --theme-blue: #3d6bff;
+  --theme-cyan: #14c8ff;
+  --theme-green: #14e89c;
+  --theme-pink: #ff45dc;
+
+  /* The opened photo / video (MediaLightbox.vue), Settings → Look:
+     how dark the layer over the gallery is (0–1; with the frosted glass on,
+     the gallery shows faintly through it, blurred), and the thickness of the
+     ring around the photo / video (0 = none) */
+  --lightbox-darkness: 0.6;
+  --lightbox-ring-width: 1px;
+
+  /* Video controls' share of the glass strength (Settings → Look → Video
+     control darkness ratio): their colors are --glass-opacity × this opaque */
+  --video-control-ratio: 0.3;
+
+  /* Colored glass: the theme colors at full strength but see-through, for
+     the video player's buttons, pills and slider preview. How opaque follows
+     Glass strength × Video control darkness ratio (0.55 × 0.3 ≈ 17%). Use it
+     through the .theme-glass class below, which adds the frosted blur and
+     follows the "Glass effect" setting */
+  --theme-glass-alpha: calc(var(--glass-opacity) * var(--video-control-ratio) * 100%);
+  --theme-glass: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--theme-purple) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-blue) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-cyan) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-green) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-pink) var(--theme-glass-alpha), transparent)
+  );
+
+  /* Space between a card's edge and the info on its media (date, duration,
+     size, counts, the preview's status pill) */
+  --badge-inset: 0.75rem;
+
+  /* Night sky color at mid-height (NightSky.vue): darker towards the top, a
+     little purpler at the bottom. Lighter = brighter sky. Read once when the
+     page loads */
+  --page-bg: #080a1a;
+
+  /* How opaque the frosted glass is (folder cards, the top bar), 0–1.
+     1 is the original look; lower lets more of the page show through.
+     The blur stays the same, so it still reads as glass. */
+  --glass-opacity: 0.55;
+
+  /* How dark the top bar's glass is, 0–1 (Settings → Look → Top bar
+     darkness): 0 = no dark layer, 1 = solid black. In between it stays
+     see-through */
+  --topbar-darkness: 0.72;
+  /* Folder cards' glass darkness, as a share of the top bar's (Settings →
+     Look → Folder darkness ratio): 0.5 = half as dark, 1 = the same */
+  --folder-darkness-ratio: 0.5;
+  /* Info badges on cards (date, duration, size, quality, folder counts) and
+     the previews' status pill: .badge-glass below. How dark their dark layer
+     is, 0–1 (Settings → Look → Badge darkness), and how strong their glass
+     sheen is, as a share of --glass-opacity (Settings → Look → Badge glass ratio) */
+  --badge-darkness: 0.32;
+  --badge-glass-ratio: 1;
+
+  /* Top bar buttons (sort, select, folder menu, settings, shutdown) at rest;
+     they light up further on hover */
+  --bar-btn-color: #c4bedb;
+
+  /* Edges: see-through white instead of solid grey, so they pick up what's
+     behind them like a glass rim. -soft for inner panels and dividers,
+     -strong for hover */
+  --edge-soft: rgba(255, 255, 255, 0.06);
+  --edge: rgba(255, 255, 255, 0.12);
+  --edge-strong: rgba(255, 255, 255, 0.22);
+  /* Thin light line along the top inside edge, like light catching the rim */
+  --edge-shine: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* Font for the whole app: the default of Settings → Look → Font. Keep equal
+     to APP_FONTS[APP_FONT] in src/constants.ts (files: styles/fonts.css) */
+  --font-body: 'Comic Code', 'Shantell Sans', system-ui, sans-serif;
+}
+
+/* Apply it everywhere. Buttons and inputs don't inherit fonts by default. */
+body,
+button,
+input,
+select,
+textarea {
+  font-family: var(--font-body);
+}
+
+/* Colored frosted glass (the video player's buttons, pills and slider
+   preview): the theme colors, see-through, over a blur of what's behind,
+   with the same glass rim as the top bar and folder cards */
+.theme-glass {
+  background: var(--theme-glass);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  border: 1px solid var(--edge);
+  box-shadow: var(--edge-shine);
+}
+
+/* Dark frosted glass in small, for the info badges on cards and the previews'
+   status pill: the folder cards' glass (blur, light sheen, glass rim) over a
+   dark layer of --badge-darkness. The sheen is Glass strength × --badge-glass-ratio.
+   With "Glass effect" off the blur goes (rule below): plain see-through dark badges */
+.badge-glass {
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, calc(0.09 * var(--glass-opacity) * var(--badge-glass-ratio))),
+      rgba(255, 255, 255, calc(0.025 * var(--glass-opacity) * var(--badge-glass-ratio)))
+    ),
+    rgba(5, 4, 10, var(--badge-darkness));
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+  border: 1px solid var(--edge);
+  box-shadow: var(--edge-shine);
+}
+
+/* "Glass effect" off: no blur (rule below), so a dark layer under the colors
+   keeps the icons and text readable, like the top bar turning nearly solid.
+   Not inside .force-glass, which keeps its glass (below) */
+html.no-glass .theme-glass:not(.force-glass .theme-glass) {
+  background:
+    var(--theme-glass),
+    rgba(14, 13, 22, 0.85);
+}
+
+/* "Glass effect" setting off (settings.ts puts .no-glass on <html>): no blur
+   behind anything. The blur re-renders whenever what's under it changes
+   (previews, the sky), which is the costliest thing the page draws.
+
+   Except in .force-glass: the viewer (MediaLightbox.vue: the carousel, photo
+   and video fullscreen). While it's open the grid's previews and the sky are
+   paused (App.vue), so what's behind it stands still and its blur is drawn
+   once instead of on every frame: it keeps its glass whatever the setting.
+
+   ::before / ::after too: `*` alone doesn't reach them, and the folder cards'
+   glass (::before) and the glass frame around folder and video cards
+   (::after) are drawn there, so they stayed blurred with the setting off */
+html.no-glass *:not(.force-glass, .force-glass *),
+html.no-glass *:not(.force-glass, .force-glass *)::before,
+html.no-glass *:not(.force-glass, .force-glass *)::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* No scrollbars anywhere (the page, file lists, dialogs…): everything still
+   scrolls with the wheel, touch or keys, the bar just isn't drawn, so lists
+   get their full width */
+* {
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}

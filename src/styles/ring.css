@@ -1,0 +1,77 @@
+/* ── Ring around image / video cards and the open photo or video ──
+   Add `ring-frame` to an element to give it a thin ring drawn just outside
+   it, in the theme colors (tokens.css) fading into each other around it. Add
+   `ring-loading` too while its content loads: a bright arc then sweeps around
+   the ring (or, with the "Loading ring spin" setting off, the ring just
+   brightens: html.no-ring-spin).
+
+   Set on the element:
+     --ring-width   thickness of the ring (default from tokens.css)
+     --ring-radius  the element's own corner radius, so the ring's corners
+                    stay parallel to it
+     --ring-inset   the element's border width, so the ring starts outside it
+     --ring-mix     how strong the colors are, 0–100% (e.g. brighter on hover)
+   How saturated they are is --ring-vibrancy (tokens.css, Settings → Look). */
+
+@property --ring-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes ring-spin {
+  to {
+    --ring-angle: 360deg;
+  }
+}
+
+.ring-frame {
+  --ring-mix: 90%;
+  /* the theme colors around the ring, each fading into the next */
+  --ring-rest: conic-gradient(
+    from 200deg,
+    color-mix(in srgb, var(--theme-purple) var(--ring-mix), transparent),
+    color-mix(in srgb, var(--theme-blue) var(--ring-mix), transparent),
+    color-mix(in srgb, var(--theme-cyan) var(--ring-mix), transparent),
+    color-mix(in srgb, var(--theme-green) var(--ring-mix), transparent),
+    color-mix(in srgb, var(--theme-pink) var(--ring-mix), transparent),
+    color-mix(in srgb, var(--theme-purple) var(--ring-mix), transparent)
+  );
+  --ring: var(--ring-rest);
+  position: relative;
+  isolation: isolate;
+}
+
+.ring-frame::before {
+  content: '';
+  position: absolute;
+  inset: calc(-1 * (var(--ring-inset, 0px) + var(--ring-width, 1px)));
+  border-radius: calc(var(--ring-radius, 0px) + var(--ring-width, 1px));
+  background: var(--ring);
+  /* Settings → Look → Ring vibrancy: how saturated the colors are (tokens.css) */
+  filter: saturate(var(--ring-vibrancy, 1));
+  z-index: -1;
+}
+
+/* loading: a bright arc sweeping over the colored ring, its tail in the
+   theme's cyan, its head nearly white */
+.ring-frame.ring-loading {
+  --ring:
+    conic-gradient(
+      from var(--ring-angle),
+      transparent 0turn,
+      transparent 0.55turn,
+      color-mix(in srgb, var(--theme-cyan) 70%, transparent) 0.8turn,
+      rgba(240, 250, 255, 0.95) 0.95turn,
+      transparent 1turn
+    ),
+    var(--ring-rest);
+  animation: ring-spin 1.1s linear infinite;
+}
+
+/* "Loading ring spin" off: no sweep, the ring's colors just brighten while loading */
+html.no-ring-spin .ring-frame.ring-loading {
+  --ring-mix: 100%;
+  --ring: var(--ring-rest);
+  animation: none;
+}

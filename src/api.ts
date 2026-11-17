@@ -1,0 +1,620 @@
+import { ref } from 'vue'
+import { API, CACHE_VERSION_STORAGE_KEY, FILES_PREFIX } from '@/constants'
+import type { FieldGroup } from '@/settings'
+import type { Entry, FolderRef, ServerInfo, Storyboard } from '@/types'
+
+// ── Cache version ──
+
+function readCacheVersion(): number {
+  try {
+    return Number(localStorage.getItem(CACHE_VERSION_STORAGE_KEY)) || 0
+  } catch {
+    return 0
+  }
+}
+
+/**
+ * Goes up whenever a cache is cleared. Still-image URLs include it, so the
+ * browser fetches fresh copies instead of reusing its own. Reactive, so
+ * cards on screen re-render with the new URLs.
+ */
+export const cacheVersion = ref(readCacheVersion())
+
+export function bumpCacheVersion() {
+  cacheVersion.value++
+  try {
+    localStorage.setItem(CACHE_VERSION_STORAGE_KEY, String(cacheVersion.value))
+  } catch {
+    // storage unavailable (private window): the bump still lasts until reload
+  }
+}
+
+/**
+ * Goes up when the server's preview settings change. Previews on screen are
+ * keyed by it, so they load again (getting clips made with the new settings)
+ * instead of playing their old clip until the page is reloaded.
+ */
+export const previewGeneration = ref(0)
+
+// ── Login ──
+
+/** Logged in?, and ms until it locks by itself (null = never) */
+export interface SessionInfo {
+  unlocked: boolean
+  remainingMs: number | null
+}
+
+export async function fetchSession(): Promise<SessionInfo> {
+  const res = await fetch(API.session)
+  if (!res.ok) throw new Error(`Checking the login failed (${res.status})`)
+  return (await res.json()) as SessionInfo
+}
+
+/**
+ * ok, with ms until it locks by itself (null = never); or how many ms until
+ * the next try is allowed (0 = right away)
+ */
+export type LoginResult =
+  | { ok: true; remainingMs: number | null }
+  | { ok: false; retryAfter: number }
+
+export async function login(passcode: string): Promise<LoginResult> {
+  const res = await fetch(API.login, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ passcode }),
+  })
+  if (res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { remainingMs?: number | null }
+    return { ok: true, remainingMs: data.remainingMs ?? null }
+  }
+  const data = (await res.json().catch(() => ({}))) as { retryAfter?: number }
+  return { ok: false, retryAfter: data.retryAfter ?? 0 }
+}
+
+/** Forgets the login on this browser (other devices stay logged in) */
+export async function logout(): Promise<void> {
+  const res = await fetch(API.logout, { method: 'POST' })
+  if (!res.ok) throw new Error(`Locking failed (${res.status})`)
+}
+
+// ── Requests ──
+
+export async function fetchInfo(): Promise<ServerInfo> {
+  const res = await fetch(API.info)
+  return (await res.json()) as ServerInfo
+}
+
+export async function fetchEntries(path: string): Promise<Entry[]> {
+  const res = await fetch(`${API.browse}?path=${encodeURIComponent(path)}`)
+  return (await res.json()) as Entry[]
+}
+
+/** Layout of a video's storyboard (see `storyboardUrl`); null if it can't be built */
+export async function fetchStoryboard(url: string, signal?: AbortSignal): Promise<Storyboard | null> {
+  const res = await fetch(url, { signal })
+  if (!res.ok) return null
+  return (await res.json()) as Storyboard
+}
+
+/** Deletes the cached stills, previews and storyboards under a folder; returns how many files */
+export async function clearCache(path: string): Promise<number> {
+  const res = await fetch(`${API.clearCache}?path=${encodeURIComponent(path)}`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Clearing the cache failed (${res.status})`)
+  const data = (await res.json()) as { removed: number }
+  return data.removed
+}
+
+/** Sends a POST; throws with the server's `error` message if it fails */
+async function post<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: 'POST' })
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string }
+  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`)
+  return data
+}
+
+/** Answer of /api/preview and /api/folder-preview */
+export interface PreviewInfo {
+  /** Where to download the clip */
+  url: string
+  /** True if the server encoded it for this request, false if it was already cached there */
+  built: boolean
+  /** The clip's frame rate (null if unknown), to pick a speed that fits the screen */
+  fps: number | null
+}
+
+/**
+ * Asks the server for a preview clip (`url` from previewUrl / folderPreviewUrl).
+ * Returns null if it isn't built yet: the server starts building it and
+ * announces the outcome on the job events (see useJobEvents' waitForJob),
+ * so the request doesn't hold one of the browser's few connections meanwhile.
+ */
+export async function fetchPreviewInfo(url: string, signal?: AbortSignal): Promise<PreviewInfo | null> {
+  const res = await fetch(`${url}&wait=0`, { signal })
+  if (res.status === 202) return null
+  if (!res.ok) throw new Error(`Preview failed (${res.status})`)
+  return (await res.json()) as PreviewInfo
+}
+
+/**
+ * Tells the server to stop building a preview (queued or encoding): its card
+ * left the screen. `keepalive`, so it's still sent while the page navigates
+ * away. Fails quietly: the build then just finishes.
+ */
+export function cancelPreviewJob(kind: 'video' | 'folder', path: string): void {
+  void fetch(`${API.cancelJob}?kind=${kind}&path=${encodeURIComponent(path)}`, {
+    method: 'POST',
+    keepalive: true,
+  }).catch(() => {})
+}
+
+/** Subfolders of a folder (names and paths only, fast) */
+export async function fetchFolders(path: string): Promise<FolderRef[]> {
+  const res = await fetch(`${API.folders}?path=${encodeURIComponent(path)}`)
+  return (await res.json()) as FolderRef[]
+}
+
+/** One line of the fix-ts / edit answer (see server/handlers/tsFix.ts, edit.ts) */
+type JobMessage =
+  | { type: 'progress'; fraction: number }
+  | { type: 'done'; path: string; name: string }
+  | { type: 'error'; error: string }
+
+/**
+ * Has the server remux an MPEG-TS video into a playable MP4 saved next to it
+ * as "<name>_ts_fix.mp4" (the original is kept). `onProgress` hears 0–1 of it
+ * written; resolves with the copy once it's saved.
+ */
+export async function fixTs(
+  path: string,
+  onProgress: (fraction: number) => void,
+): Promise<{ path: string; name: string }> {
+  const res = await fetch(`${API.fixTs}?path=${encodeURIComponent(path)}`, { method: 'POST' })
+  return readJob(res, onProgress, 'Fixing')
+}
+
+/** The part of a video to keep (seconds) and its crop (fractions 0–1 of the picture as shown) */
+export interface VideoEdit {
+  start: number
+  end: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Has the server save a trimmed / cropped copy of a video next to it as
+ * "<name>_edited.mp4" (the original is kept). `onProgress` hears 0–1 of it
+ * written. Aborting `signal` stops it; no copy is kept.
+ */
+export async function editVideo(
+  path: string,
+  edit: VideoEdit,
+  onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<{ path: string; name: string }> {
+  const params = new URLSearchParams({ path })
+  for (const [key, value] of Object.entries(edit)) params.set(key, String(value))
+  try {
+    const res = await fetch(`${API.editFile}?${params}`, { method: 'POST', signal })
+    return await readJob(res, onProgress, 'Saving')
+  } catch (e) {
+    if (e instanceof TypeError && !signal?.aborted) throw new Error('Connection lost') // fetch's network errors
+    throw e
+  }
+}
+
+/** Reads a progress… / done / error stream of JSON lines until its outcome */
+async function readJob(
+  res: Response,
+  onProgress: (fraction: number) => void,
+  what: string,
+): Promise<{ path: string; name: string }> {
+  if (!res.ok || !res.body) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `${what} failed (${res.status})`)
+  }
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += value
+    let nl: number
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim()
+      buffer = buffer.slice(nl + 1)
+      if (!line) continue
+      const message = JSON.parse(line) as JobMessage
+      if (message.type === 'progress') onProgress(message.fraction)
+      else if (message.type === 'done') return { path: message.path, name: message.name }
+      else throw new Error(message.error)
+    }
+  }
+  // the stream ended without an outcome (server restarted, connection cut)
+  throw new Error('Connection lost')
+}
+
+/** Moves a file to the computer's trash (restorable from the file manager) */
+export async function trashFile(path: string): Promise<void> {
+  await post(`${API.trashFile}?path=${encodeURIComponent(path)}`)
+}
+
+/** Moves a file into the folder `to`; returns its new path */
+export async function moveFile(path: string, to: string): Promise<string> {
+  const data = await post<{ path: string }>(
+    `${API.moveFile}?path=${encodeURIComponent(path)}&to=${encodeURIComponent(to)}`,
+  )
+  return data.path
+}
+
+/** Answer of GET /api/settings */
+export interface ServerSettingsInfo {
+  values: Record<string, unknown>
+  defaults: Record<string, unknown>
+  groups: FieldGroup[]
+}
+
+export async function fetchServerSettings(): Promise<ServerSettingsInfo> {
+  const res = await fetch(API.settings)
+  if (!res.ok) throw new Error(`Loading the server settings failed (${res.status})`)
+  return (await res.json()) as ServerSettingsInfo
+}
+
+/** Thrown by saveServerSettings; `problems` maps keys to what's wrong with their value */
+export class SettingsRejected extends Error {
+  readonly problems: Record<string, string>
+
+  constructor(message: string, problems: Record<string, string>) {
+    super(message)
+    this.problems = problems
+  }
+}
+
+/** Saves changed server settings (all or nothing); returns every current value */
+export async function saveServerSettings(
+  changes: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const res = await fetch(API.settings, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  })
+  const data = (await res.json().catch(() => ({}))) as {
+    values?: Record<string, unknown>
+    error?: string
+    problems?: Record<string, string>
+  }
+  if (!res.ok || !data.values) {
+    throw new SettingsRejected(data.error ?? `Saving failed (${res.status})`, data.problems ?? {})
+  }
+  return data.values
+}
+
+/** Creates an empty folder `name` inside `dir`; returns its path */
+export async function createFolder(dir: string, name: string): Promise<string> {
+  const data = await post<{ path: string }>(
+    `${API.createFolder}?dir=${encodeURIComponent(dir)}&name=${encodeURIComponent(name)}`,
+  )
+  return data.path
+}
+
+/** Renames a file or folder where it is; returns its new path */
+export async function renameEntry(path: string, name: string): Promise<string> {
+  const data = await post<{ path: string }>(
+    `${API.rename}?path=${encodeURIComponent(path)}&name=${encodeURIComponent(name)}`,
+  )
+  return data.path
+}
+
+/**
+ * Renames the photos and videos directly in a folder to <folder>_1, _2… from
+ * the oldest; returns how many got a new name
+ */
+export async function numberFiles(path: string): Promise<number> {
+  const data = await post<{ renamed: number }>(`${API.numberFiles}?path=${encodeURIComponent(path)}`)
+  return data.renamed
+}
+
+/** A running upload */
+/** Where an upload was saved */
+export interface Uploaded {
+  /** The name it was saved under (a taken name gets " (2)" etc.) */
+  name: string
+  /** Its path inside the shared folder, e.g. to discard it again */
+  path: string
+}
+
+export interface Upload {
+  done: Promise<Uploaded>
+  /**
+   * Stops the upload; `done` then rejects with an UploadCancelled. The server
+   * throws away the part it got, so nothing of the file is kept.
+   */
+  cancel(): void
+}
+
+export class UploadCancelled extends Error {
+  constructor() {
+    super('Cancelled')
+  }
+}
+
+/**
+ * Sends a file from the device into the folder `dir`. Uses XMLHttpRequest
+ * because fetch can't report upload progress: `onProgress` gets the bytes
+ * sent so far.
+ */
+export function uploadFile(dir: string, file: File, onProgress: (sent: number) => void): Upload {
+  const xhr = new XMLHttpRequest()
+  const done = new Promise<Uploaded>((resolve, reject) => {
+    xhr.upload.onprogress = (e) => onProgress(e.loaded)
+    xhr.onload = () => {
+      let data: { name?: string; path?: string; error?: string } = {}
+      try {
+        data = JSON.parse(xhr.responseText)
+      } catch {
+        // not JSON (e.g. a bare 500): keep the generic message below
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const name = data.name ?? file.name
+        resolve({ name, path: data.path ?? (dir ? `${dir}/${name}` : name) })
+      } else {
+        reject(new Error(data.error ?? `Upload failed (${xhr.status})`))
+      }
+    }
+    xhr.onerror = () => reject(new Error('Connection lost'))
+    xhr.onabort = () => reject(new UploadCancelled())
+  })
+  xhr.open(
+    'POST',
+    `${API.uploadFile}?dir=${encodeURIComponent(dir)}&name=${encodeURIComponent(file.name)}`,
+  )
+  xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+  xhr.send(file)
+  return { done, cancel: () => xhr.abort() }
+}
+
+/**
+ * Deletes a file that was just uploaded (the server refuses any other), for
+ * good: the upload dialog's Cancel, which throws a whole batch away
+ */
+export async function discardUpload(path: string): Promise<void> {
+  const res = await fetch(`${API.discardUpload}?path=${encodeURIComponent(path)}`, {
+    method: 'POST',
+  })
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(data.error ?? `Discarding failed (${res.status})`)
+  }
+}
+
+// ── Compressing ──
+
+/** Outcome of a compression */
+export interface Compressed {
+  /** Size of the original, in bytes */
+  before: number
+  /** Size of the copy (the same as before if none was saved) */
+  after: number
+  /** False if no copy was saved (e.g. it would hardly shrink); `note` says why */
+  compressed: boolean
+  /** The copy's path inside the shared folder and its name (compressed only) */
+  path?: string
+  name?: string
+  note?: string
+}
+
+export interface CompressProgress {
+  /** Waiting for another compression on the server to finish */
+  queued: boolean
+  /** 0–1 of the video encoded */
+  fraction: number
+  /** × real time (2 = a minute of video takes 30 s); null until known */
+  speed: number | null
+}
+
+export interface Compression {
+  done: Promise<Compressed>
+  /**
+   * Stops it; `done` then rejects with a CompressCancelled. The server stops
+   * ffmpeg and keeps no copy.
+   */
+  cancel(): void
+}
+
+export class CompressCancelled extends Error {
+  constructor() {
+    super('Cancelled')
+  }
+}
+
+/** One line of the server's answer (see server/handlers/compress.ts) */
+type CompressMessage =
+  | { type: 'queued' }
+  | { type: 'started' }
+  | { type: 'progress'; fraction: number; speed: number | null }
+  | ({ type: 'done' } & Compressed)
+  | { type: 'error'; error: string }
+
+/**
+ * Has the server save a compressed copy of a video next to it (the original
+ * isn't touched). The server answers with a line of JSON per step while
+ * ffmpeg runs; `onProgress` gets each.
+ */
+export function compressVideo(
+  path: string,
+  onProgress: (p: CompressProgress) => void,
+): Compression {
+  const controller = new AbortController()
+  const { signal } = controller
+
+  async function work(): Promise<Compressed> {
+    const res = await fetch(`${API.compressFile}?path=${encodeURIComponent(path)}`, {
+      method: 'POST',
+      signal,
+    })
+    if (!res.ok || !res.body) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string }
+      throw new Error(data.error ?? `Compressing failed (${res.status})`)
+    }
+    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+    let buffer = ''
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += value
+      let nl: number
+      while ((nl = buffer.indexOf('\n')) >= 0) {
+        const line = buffer.slice(0, nl).trim()
+        buffer = buffer.slice(nl + 1)
+        if (!line) continue
+        const message = JSON.parse(line) as CompressMessage
+        switch (message.type) {
+          case 'queued':
+            onProgress({ queued: true, fraction: 0, speed: null })
+            break
+          case 'started':
+            onProgress({ queued: false, fraction: 0, speed: null })
+            break
+          case 'progress':
+            onProgress({ queued: false, fraction: message.fraction, speed: message.speed })
+            break
+          case 'done':
+            return {
+              before: message.before,
+              after: message.after,
+              compressed: message.compressed,
+              path: message.path,
+              name: message.name,
+              note: message.note,
+            }
+          case 'error':
+            throw new Error(message.error)
+        }
+      }
+    }
+    // the stream ended without an outcome (server restarted, connection cut)
+    throw new Error('Connection lost')
+  }
+
+  const done = work().catch((e: unknown) => {
+    if (signal.aborted) throw new CompressCancelled()
+    if (e instanceof TypeError) throw new Error('Connection lost') // fetch's network errors
+    throw e
+  })
+  return { done, cancel: () => controller.abort() }
+}
+
+/**
+ * Deletes a copy saved by a compression in the last day (the compress
+ * dialog's Cancel); the server refuses any other file
+ */
+export async function discardCompressed(path: string): Promise<void> {
+  await post(`${API.discardCompressed}?path=${encodeURIComponent(path)}`)
+}
+
+export async function shutdownServer(): Promise<void> {
+  await fetch(API.shutdown).catch(() => {})
+}
+
+// ── URLs ──
+
+/** The original file */
+export function fileUrl(path: string): string {
+  return FILES_PREFIX + path.split('/').map(encodeURIComponent).join('/')
+}
+
+/** Still frame from the middle of a video, generated by the server (ffmpeg) */
+export function thumbUrl(path: string): string {
+  return `${API.thumb}?path=${encodeURIComponent(path)}&v=${cacheVersion.value}`
+}
+
+/** Grid of small frames for the player's slider preview, generated by the server */
+export function storyboardUrl(path: string): string {
+  return `${API.storyboard}?path=${encodeURIComponent(path)}`
+}
+
+/**
+ * A video was played in the viewer, or a photo shown there: the server sets
+ * "last viewed" of it and of every folder above it to now, and counts one
+ * more play. Returns that time and the new count (both null in dev mode:
+ * nothing was recorded, src/appMode.ts).
+ */
+export async function markViewed(
+  path: string,
+): Promise<{ viewed: number | null; plays: number | null }> {
+  return post<{ viewed: number | null; plays: number | null }>(
+    `${API.viewed}?path=${encodeURIComponent(path)}`,
+  )
+}
+
+/** Sets how many times a video / photo was viewed, on every device */
+export async function setPlays(path: string, count: number): Promise<void> {
+  await post(`${API.setPlays}?path=${encodeURIComponent(path)}&count=${count}`)
+}
+
+/**
+ * Most played first, shared by every device: the `limit` videos and photos
+ * inside a folder (subfolders included), or (`kind` 'folders') the `limit`
+ * folders directly inside it, by the plays of everything in them added up
+ */
+export async function fetchMostPlayed(
+  path: string,
+  limit: number,
+  kind: 'media' | 'folders' = 'media',
+): Promise<Entry[]> {
+  const res = await fetch(
+    `${API.mostPlayed}?path=${encodeURIComponent(path)}&limit=${limit}&kind=${kind}`,
+  )
+  if (!res.ok) throw new Error(`Loading the most played failed (${res.status})`)
+  return (await res.json()) as Entry[]
+}
+
+/** How many times each part of a video was watched (HEATMAP_BINS numbers), or null if never */
+export async function fetchHeatmap(path: string, signal?: AbortSignal): Promise<number[] | null> {
+  const res = await fetch(`${API.heatmap}?path=${encodeURIComponent(path)}`, { signal })
+  if (!res.ok) throw new Error(`Loading the most watched parts failed (${res.status})`)
+  const data = (await res.json()) as { counts: number[] | null }
+  return data.counts
+}
+
+/**
+ * Adds how many times each part of a video was just watched, on every device.
+ * `keepalive`, so it's still sent while the player closes or the page goes away.
+ */
+export async function sendHeatmap(path: string, counts: number[]): Promise<void> {
+  const res = await fetch(`${API.heatmap}?path=${encodeURIComponent(path)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(counts),
+    keepalive: true,
+  })
+  if (!res.ok) throw new Error(`Saving the most watched parts failed (${res.status})`)
+}
+
+/** Adds (`on`) or removes the heart of a video or photo; saved on the server for every device */
+export async function setFavorite(path: string, on: boolean): Promise<void> {
+  const res = await fetch(
+    `${API.favorite}?path=${encodeURIComponent(path)}&on=${on ? 1 : 0}`,
+    { method: 'POST' },
+  )
+  if (!res.ok) throw new Error(`Saving the favorite failed (${res.status})`)
+}
+
+/**
+ * Looping clip of a folder: a slice of each of some random videos inside it,
+ * or a slideshow of its images. The server keeps a few different random ones
+ * per folder; `pick` (any whole number) chooses which, the same one every time.
+ */
+export function folderPreviewUrl(path: string, pick: number): string {
+  return `${API.folderPreview}?path=${encodeURIComponent(path)}&pick=${pick}`
+}
+
+/** Short looping clip of slices spread across a video, generated by the server */
+export function previewUrl(path: string): string {
+  return `${API.preview}?path=${encodeURIComponent(path)}`
+}
