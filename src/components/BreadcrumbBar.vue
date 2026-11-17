@@ -5,6 +5,7 @@ import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
 import { useContextHold } from '@/composables/useContextHold'
+import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
 import { formatSize } from '@/utils/format'
@@ -41,9 +42,11 @@ function onCrumbClick(crumb: { path: string }, last: boolean) {
   emit('navigate', crumb.path)
 }
 
-// slides away while scrolling down, back while scrolling up; stays while a
-// dialog or the player is open (they pause the background)
+// slides away while scrolling down, back while scrolling up; scrolling doesn't
+// move it while a dialog or the player is open (they pause the background)
 const { hidden } = useScrollHide(() => !backgroundPaused.value)
+// while a popup is open (usePopupOpen.ts), both bars slide up off the screen
+// whatever the scroll, and come back down when it closes
 
 // the top bar's height: how far the bars move up when it hides, so the
 // alphabet bar ends up where the top bar was
@@ -94,7 +97,11 @@ onUnmounted(() => rowResize.disconnect())
 <template>
   <!-- the top bar and, under it, the alphabet bar: they stick together; while
        scrolling down only the top bar slides away and the alphabet moves up -->
-  <header class="topbar" :class="{ hidden }" :style="{ '--nav-height': `${navHeight}px` }">
+  <header
+    class="topbar"
+    :class="{ hidden, 'popup-hidden': popupOpen }"
+    :style="{ '--nav-height': `${navHeight}px` }"
+  >
   <nav ref="navEl" class="breadcrumb glass-bar">
     <!-- Row 1: app buttons (the file order is set in Settings → Sorting) -->
     <div class="actions">
@@ -230,11 +237,26 @@ onUnmounted(() => rowResize.disconnect())
   pointer-events: none;
 }
 
+/* a popup is open (usePopupOpen.ts): both bars, the top bar and the alphabet
+   bar, slide all the way up off the screen: their whole height, the gap
+   above them, and room for the shadow. After .hidden, so it wins over it.
+   They slide back down (the transition above) once the popup closes */
+.topbar.popup-hidden {
+  transform: translateY(calc(-100% - var(--bar-gap) - 1rem));
+  transition: transform 0.3s ease-in-out;
+  pointer-events: none;
+}
+
+/* no sliding: the bars just jump. After the rules above, and listing
+   .hidden and .popup-hidden, whose own transitions would win otherwise */
 @media (prefers-reduced-motion: reduce) {
-  .topbar {
+  .topbar,
+  .topbar.hidden,
+  .topbar.popup-hidden {
     transition: none;
   }
 }
+
 
 /* Both bars: dark frosted glass, faintly tinted with the background's colors:
    still see-through, darker than the cards' glass so the bar reads clearly.

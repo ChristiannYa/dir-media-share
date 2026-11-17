@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue'
 import { usePauseBackgroundWhileMounted } from '@/composables/useBackgroundPause'
+import { useMarkPopupOpenWhileMounted } from '@/composables/usePopupOpen'
 
 /**
  * Centered popup over a blurred, darkened page: every popup of the app
@@ -35,6 +36,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
 // the backdrop blurs the whole screen: no need to keep the sky moving behind it
 usePauseBackgroundWhileMounted()
+// the top bar and the alphabet bar slide up out of the way while it's open
+useMarkPopupOpenWhileMounted()
 </script>
 
 <template>
