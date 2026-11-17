@@ -187,7 +187,7 @@ const inAlphabetFolder = computed(() => {
 
 // the alphabet bar: the letter of the first card on screen (only in
 // inAlphabetFolder, and only when the page scrolls)
-const { alphabet } = useAlphabetIndex(sortedEntries, () => inAlphabetFolder.value)
+const { alphabet, scrollToLetter } = useAlphabetIndex(sortedEntries, () => inAlphabetFolder.value)
 
 /**
  * Fixed columns (Settings → Grid → Columns): the top bar and the grid share a
@@ -527,6 +527,7 @@ onUnmounted(() => {
       :crumbs="breadcrumbs"
       :stats="folderStats"
       :alphabet="alphabet"
+      @letter="scrollToLetter"
       @navigate="goTo"
       @settings="settingsOpen = true"
       @shutdown="shutdown"

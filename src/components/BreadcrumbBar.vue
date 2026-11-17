@@ -10,6 +10,7 @@ import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
 import { formatSize } from '@/utils/format'
+import { haptic } from '@/utils/haptics'
 
 const props = defineProps<{
   rootName: string
@@ -28,6 +29,11 @@ const emit = defineEmits<{
   changed: []
   /** The open folder was renamed: open it at its new path */
   renamed: [path: string]
+  /**
+   * The alphabet bar was scrubbed or a letter tapped: scroll the page to that
+   * letter (`smooth`: glide there, for a tap; at once while scrubbing)
+   */
+  letter: [letter: string, smooth: boolean]
 }>()
 
 /** The open folder (last crumb); null at the top level */
@@ -45,7 +51,12 @@ function onCrumbClick(crumb: { path: string }, last: boolean) {
 
 // slides away while scrolling down, back while scrolling up; scrolling doesn't
 // move it while a dialog or the player is open (they pause the background)
-const { hidden } = useScrollHide(() => !backgroundPaused.value)
+// While the alphabet bar is scrubbed, the page moving under it leaves the bars
+// as they are (the bar under the finger would jump up otherwise)
+const { hidden } = useScrollHide(
+  () => !backgroundPaused.value,
+  () => scrubbing.value,
+)
 // while a popup is open (usePopupOpen.ts), both bars slide up off the screen
 // whatever the scroll, and come back down when it closes
 
@@ -62,12 +73,13 @@ const strip = ref<HTMLElement | null>(null)
 /**
  * Slides the alphabet row so the current letter sits in its middle, however
  * few letters there are (the row's half-width side padding leaves room for
- * the first and last letters to reach it)
+ * the first and last letters to reach it). Not while you're scrubbing it:
+ * your finger moves it then.
  */
 function placeLetters(smooth: boolean) {
   const row = strip.value
   const letter = props.alphabet?.current
-  if (!row || !letter) return
+  if (!row || !letter || scrubbing.value) return
   const el = row.querySelector<HTMLElement>(`[data-letter="${letter}"]`)
   if (!el) return
   row.scrollTo({
@@ -86,6 +98,16 @@ watch(
   { immediate: true },
 )
 
+// while scrubbing the bar: a tick of haptics each time the current letter
+// changes, so each letter passing the middle is felt (and each one a tapped
+// letter's glide goes past). Not while just scrolling the page
+watch(
+  () => props.alphabet?.current,
+  (letter, before) => {
+    if (scrubbing.value && letter && before && letter !== before) haptic('tick')
+  },
+)
+
 // the bar got wider or narrower: its middle moved
 const rowResize = new ResizeObserver(() => placeLetters(false))
 watch(strip, (row, old) => {
@@ -93,6 +115,157 @@ watch(strip, (row, old) => {
   if (row) rowResize.observe(row)
 })
 onUnmounted(() => rowResize.disconnect())
+
+// ── Scrubbing the alphabet ──
+// Like a picker: slide the row (finger, mouse drag, wheel) and the letter in
+// its middle is where the page glides to, letter by letter as they pass.
+// Tapping a letter goes there too. Once you let go and both the row and the
+// page stop, it settles on the letter the page shows.
+
+/** The row is being moved by you (from the first touch until it and the page stop) */
+const scrubbing = ref(false)
+/** How long the row and the page must be still, after you let go, to count as stopped (ms) */
+const SCRUB_SETTLE_MS = 180
+let settleTimer: ReturnType<typeof setTimeout> | undefined
+/**
+ * A finger or the mouse button is down on the row. A finger is followed by
+ * its touch events: its pointer events stop (pointercancel) as soon as the
+ * browser takes the touch to slide the row, while the finger is still down
+ */
+let pressed = false
+/** The letter last sent while scrubbing (one jump per letter) */
+let lastSent: string | null = null
+
+function startScrub() {
+  scrubbing.value = true
+  lastSent = props.alphabet?.current ?? null
+  clearTimeout(settleTimer)
+}
+
+/** Stopped: settles on the page's letter, and page scrolling moves the row again */
+function settleSoon() {
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(() => {
+    if (pressed) return // still held: waits for the release
+    scrubbing.value = false
+    lastSent = null
+    placeLetters(true)
+  }, SCRUB_SETTLE_MS)
+}
+
+/** The letter closest to the row's middle */
+function middleLetter(): string | null {
+  const row = strip.value
+  if (!row) return null
+  const rect = row.getBoundingClientRect()
+  const middle = rect.left + rect.width / 2
+  let best: string | null = null
+  let bestDistance = Infinity
+  for (const el of row.querySelectorAll<HTMLElement>('.letter')) {
+    const r = el.getBoundingClientRect()
+    const distance = Math.abs(r.left + r.width / 2 - middle)
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = el.dataset.letter ?? null
+    }
+  }
+  return best
+}
+
+// the page still gliding to a letter: not stopped yet (the top bar stays
+// put and the row stays where you left it until it arrives)
+function onPageScroll() {
+  if (scrubbing.value) settleSoon()
+}
+onMounted(() => window.addEventListener('scroll', onPageScroll, { passive: true }))
+onUnmounted(() => window.removeEventListener('scroll', onPageScroll))
+
+/**
+ * Sends the page to `letter`: at once while scrubbing, so it keeps up with the
+ * finger; `smooth` for a tapped letter. Its haptics come as the current
+ * letter changes
+ */
+function goTo(letter: string, smooth = false) {
+  if (letter === lastSent) return
+  lastSent = letter
+  emit('letter', letter, smooth)
+}
+
+function onStripScroll() {
+  if (!scrubbing.value) return // moved by the page (placeLetters)
+  const letter = middleLetter()
+  if (letter) goTo(letter)
+  settleSoon()
+}
+
+// a finger: down until it lifts, however long it rests (at the last letter,
+// say, where the row can't go further) before moving again
+function onStripTouchStart() {
+  pressed = true
+  startScrub()
+}
+
+function onStripTouchEnd(e: TouchEvent) {
+  if (e.touches.length > 0) return // another finger is still on it
+  pressed = false
+  settleSoon()
+}
+
+// a mouse drags the row (a finger already slides it on its own)
+let dragX: number | null = null
+let dragged = false
+
+function onStripPointerDown(e: PointerEvent) {
+  if (e.pointerType !== 'mouse') return // a finger: its touch events follow it
+  pressed = true
+  startScrub()
+  dragX = e.clientX
+  dragged = false
+}
+
+function onStripPointerMove(e: PointerEvent) {
+  if (dragX === null || !strip.value) return
+  const dx = e.clientX - dragX
+  if (!dragged) {
+    if (Math.abs(dx) <= 2) return // a click so far, not a drag
+    dragged = true
+    // only now: captured from the press, the click would miss the letter
+    strip.value.setPointerCapture(e.pointerId)
+  }
+  strip.value.scrollLeft -= dx
+  dragX = e.clientX
+}
+
+function onStripPointerUp(e: PointerEvent) {
+  if (e.pointerType !== 'mouse') return
+  pressed = false
+  dragX = null
+  settleSoon()
+}
+
+// a wheel over the row slides it, whichever way it turns (a mouse wheel only
+// goes up and down), instead of scrolling the page
+function onStripWheel(e: WheelEvent) {
+  const row = strip.value
+  if (!row) return
+  e.preventDefault()
+  startScrub()
+  row.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+  settleSoon()
+}
+
+/** A tap (not the end of a drag) on a letter goes to it */
+function onLetterClick(letter: string) {
+  if (dragged) {
+    dragged = false
+    return
+  }
+  startScrub()
+  goTo(letter, true)
+  settleSoon()
+}
+
+onUnmounted(() => clearTimeout(settleTimer))
 </script>
 
 <template>
@@ -196,15 +369,30 @@ onUnmounted(() => rowResize.disconnect())
 
   </nav>
 
-  <!-- its own bar: where you are in the alphabet (only when the folder scrolls) -->
+  <!-- its own bar: where you are in the alphabet (only when the folder scrolls).
+       Slide it, or tap a letter, to go to that letter in the folder -->
   <div v-if="alphabet" class="alphabet-bar glass-bar">
-    <div ref="strip" class="alphabet" aria-hidden="true">
+    <div
+      ref="strip"
+      class="alphabet"
+      aria-hidden="true"
+      @scroll.passive="onStripScroll"
+      @pointerdown="onStripPointerDown"
+      @pointermove="onStripPointerMove"
+      @pointerup="onStripPointerUp"
+      @pointercancel="onStripPointerUp"
+      @touchstart.passive="onStripTouchStart"
+      @touchend.passive="onStripTouchEnd"
+      @touchcancel.passive="onStripTouchEnd"
+      @wheel="onStripWheel"
+    >
       <span
         v-for="l in alphabet.letters"
         :key="l"
         :data-letter="l"
         class="letter"
         :class="l === alphabet.current ? 'theme-glass current' : 'badge-glass'"
+        @click="onLetterClick(l)"
         >{{ l }}</span
       >
     </div>
@@ -346,6 +534,11 @@ onUnmounted(() => rowResize.disconnect())
      otherwise); half the row on each side, so the first and last letters
      can reach the middle */
   padding: 0.55rem 50%;
+  /* slid sideways by a finger (the page's own scrolling stays vertical); a
+     mouse drags it (BreadcrumbBar's script) */
+  touch-action: pan-x;
+  cursor: grab;
+  scrollbar-width: none;
   /* letters fade out toward the ends */
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);
   mask-image: linear-gradient(90deg, transparent, #000 20%, #000 80%, transparent);

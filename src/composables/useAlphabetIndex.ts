@@ -51,20 +51,24 @@ export function useAlphabetIndex(entries: Ref<Entry[]>, enabled: () => boolean =
   const byPath = computed(() => new Map(entries.value.map((e) => [e.path, e])))
   const current = ref<string | null>(null)
 
-  let frame = 0
-  function measure() {
-    frame = 0
+  type Row = { top: number; bottom: number; cards: HTMLElement[] }
+
+  /**
+   * The cards in rows, how far the page scrolls, and where the grid starts
+   * and ends (page y); null while the page doesn't scroll or has no cards
+   */
+  function layout(): { rows: Row[]; maxScroll: number; gridTop: number; gridBottom: number } | null {
     const maxScroll = document.documentElement.scrollHeight - window.innerHeight
-    if (maxScroll <= 1) {
-      current.value = null
-      return
-    }
+    if (maxScroll <= 1) return null
     const scrollY = window.scrollY
 
     // the cards by where they start, top to bottom, then left to right. The
     // grid is a masonry (App.vue): columns of cards of different heights, so
-    // page order and the order down the screen can differ
+    // page order and the order down the screen can differ. Only the folder's
+    // grid: the "Most played" section above it isn't in alphabetical order,
+    // so it's left out (the index starts where the grid does)
     const cards = [...document.querySelectorAll<HTMLElement>('.card[data-path]')]
+      .filter((el) => !el.closest('.most-played'))
       .map((el) => {
         const rect = el.getBoundingClientRect()
         return { el, top: rect.top + scrollY, bottom: rect.bottom + scrollY, left: rect.left }
@@ -74,7 +78,7 @@ export function useAlphabetIndex(entries: Ref<Entry[]>, enabled: () => boolean =
     // "rows": cards starting at the same height (the first row of the grid,
     // and any that happen to line up), left to right; most others are a
     // row of their own
-    const rows: Array<{ top: number; bottom: number; cards: HTMLElement[] }> = []
+    const rows: Row[] = []
     for (const { el, top, bottom } of cards) {
       const row = rows.at(-1)
       if (row && Math.abs(row.top - top) < 2) {
@@ -85,16 +89,24 @@ export function useAlphabetIndex(entries: Ref<Entry[]>, enabled: () => boolean =
       }
     }
     const first = rows[0]
-    const last = rows.at(-1)
-    if (!first || !last) {
-      current.value = null
-      return
-    }
+    if (!first) return null
 
     // the grid's bottom: the lowest card bottom (in a masonry, the card that
     // starts last isn't always the one that ends last)
     const gridBottom = Math.max(...rows.map((r) => r.bottom))
-    const y = readingLine(scrollY, maxScroll, first.top, gridBottom)
+    return { rows, maxScroll, gridTop: first.top, gridBottom }
+  }
+
+  let frame = 0
+  function measure() {
+    frame = 0
+    const l = layout()
+    if (!l) {
+      current.value = null
+      return
+    }
+    const { rows } = l
+    const y = readingLine(window.scrollY, l.maxScroll, l.gridTop, l.gridBottom)
 
     // the row the line is in: each reaches down to the next one's top, so
     // the gap between rows belongs to the row above it
@@ -129,8 +141,43 @@ export function useAlphabetIndex(entries: Ref<Entry[]>, enabled: () => boolean =
     cancelAnimationFrame(frame)
   })
 
+  /**
+   * Scrolls the page to the first card of the grid (top to bottom, left to
+   * right) whose name starts with `letter`: exactly to where the reading line
+   * reads it, so the alphabet bar then shows that letter as the current one.
+   * `smooth`: glides there (a tapped letter); otherwise at once (scrubbing,
+   * so the page keeps up with the finger).
+   */
+  function scrollToLetter(letter: string, smooth = false) {
+    const l = layout()
+    if (!l) return
+    const { rows } = l
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i]!
+      const k = row.cards.findIndex((el) => {
+        const entry = byPath.value.get(el.dataset.path!)
+        return entry !== undefined && letterOf(entry.name) === letter
+      })
+      if (k < 0) continue
+      // the middle of that card's share of the row (see `measure`)
+      const end = rows[i + 1]?.top ?? row.bottom
+      const y = row.top + ((k + 0.5) / row.cards.length) * (end - row.top)
+      // the reading line only moves down as the page does: find the scroll
+      // that puts it at y by halving the range
+      let lo = 0
+      let hi = l.maxScroll
+      for (let step = 0; step < 30 && hi - lo > 0.5; step++) {
+        const mid = (lo + hi) / 2
+        if (readingLine(mid, l.maxScroll, l.gridTop, l.gridBottom) < y) lo = mid
+        else hi = mid
+      }
+      window.scrollTo({ top: Math.ceil(hi), behavior: smooth ? 'smooth' : 'instant' })
+      return
+    }
+  }
+
   const alphabet = computed(() =>
     current.value && enabled() ? { letters: letters.value, current: current.value } : null,
   )
-  return { alphabet }
+  return { alphabet, scrollToLetter }
 }

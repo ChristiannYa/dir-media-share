@@ -8,9 +8,13 @@ const TURN_DISTANCE = 8
 /**
  * A `hidden` flag for a sticky bar: true after scrolling down, false again
  * as soon as the page scrolls back up (or is near the top). While `canHide()`
- * returns false (e.g. a dialog is open) it stays shown.
+ * returns false (e.g. a dialog is open) it stays shown. While `frozen()`
+ * returns true (e.g. the page is moved from the bar itself) it stays as it is.
  */
-export function useScrollHide(canHide: () => boolean = () => true) {
+export function useScrollHide(
+  canHide: () => boolean = () => true,
+  frozen: () => boolean = () => false,
+) {
   const hidden = ref(false)
   let lastY = 0
   /** How far the page moved in the current direction: + down, - up */
@@ -24,6 +28,10 @@ export function useScrollHide(canHide: () => boolean = () => true) {
     const dy = y - lastY
     lastY = y
     if (dy === 0) return
+    if (frozen()) {
+      travel = 0
+      return
+    }
     // keep adding up while going the same way, start over on a turn
     travel = Math.sign(dy) === Math.sign(travel) ? travel + dy : dy
 
