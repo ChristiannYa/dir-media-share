@@ -64,12 +64,13 @@ const modeImages = computed(() =>
 </template>
 
 <style scoped>
-/* the images, stacked in one square; the current one fades in */
+/* the images, stacked in one square; the current one fades in. Its size can
+   be set by the parent (the viewer: the height of the pills beside it) */
 .mode-image {
   display: grid;
   flex-shrink: 0;
-  width: 1.6rem;
-  height: 1.6rem;
+  width: var(--mode-image-size, 1.6rem);
+  height: var(--mode-image-size, 1.6rem);
 }
 
 /* round: FramedImage clips the image to it */

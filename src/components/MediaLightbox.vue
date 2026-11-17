@@ -676,14 +676,21 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  /* the pills' height (one line, padding, 1px rim): the mode's image
+     (AppModeImage.vue) is a circle this big, so all three line up */
+  --mode-image-size: calc(0.8rem * 1.25 + 0.6rem + 2px);
 }
 
 /* both the same pill (the double class wins over AppModeButton.vue's own
-   size). The timer lets taps through to the photo / video; the mode is tapped */
-.media-status .media-pill {
+   size). The timer lets taps through to the photo / video; the mode is tapped.
+   :deep: the mode's pill sits inside AppModeButton (its group is the root),
+   where this file's scoped styles don't reach on their own */
+.media-status :deep(.media-pill) {
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
   font-size: 0.8rem;
+  /* set, not the font's own: the image's size above counts on it */
+  line-height: 1.25;
 }
 
 .media-status .lock-timer {
@@ -700,7 +707,7 @@ onUnmounted(() => {
 /* the counter, the lock timer and the mode on a photo: dark glass, like the
    photo's buttons */
 .media-counter:not(.theme-glass),
-.media-status .media-pill:not(.theme-glass) {
+.media-status :deep(.media-pill:not(.theme-glass)) {
   background: rgba(0, 0, 0, 0.45);
   border: none;
   -webkit-backdrop-filter: blur(6px);
@@ -708,10 +715,15 @@ onUnmounted(() => {
   color: #ddd;
 }
 
+/* the pills keep the 1px rim's room on a photo too (see .media-status) */
+.media-status :deep(.media-pill:not(.theme-glass)) {
+  border: 1px solid transparent;
+}
+
 /* on a video: .theme-glass (tokens.css) gives the glass, like the player's
    buttons; the text like the player's time pill */
 .media-counter.theme-glass,
-.media-status .media-pill.theme-glass {
+.media-status :deep(.media-pill.theme-glass) {
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
@@ -725,7 +737,7 @@ onUnmounted(() => {
 .fullscreen-btn,
 .media-counter,
 .media-status > :not(.app-mode-group),
-.media-status .app-mode-group > * {
+.media-status :deep(.app-mode-group > *) {
   transition:
     opacity var(--overlay-fade),
     background 0.15s,
@@ -737,7 +749,7 @@ onUnmounted(() => {
 .lightbox.overlay-off .fullscreen-btn,
 .lightbox.overlay-off .media-counter,
 .lightbox.overlay-off .media-status > :not(.app-mode-group),
-.lightbox.overlay-off .media-status .app-mode-group > * {
+.lightbox.overlay-off .media-status :deep(.app-mode-group > *) {
   opacity: 0;
   pointer-events: none;
 }
