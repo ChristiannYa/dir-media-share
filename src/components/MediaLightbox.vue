@@ -405,7 +405,12 @@ onUnmounted(() => {
       <!-- :key: a new player (or image) for each item, starting fresh -->
       <!-- everything in here over the photo / video shows and hides with its
            controls: the rule at the top of the script -->
-      <div :key="entry.path" class="lightbox-frame ring-frame">
+      <!-- the colored ring only around hearted ones, like the grid's cards -->
+      <div
+        :key="entry.path"
+        class="lightbox-frame ring-frame"
+        :class="{ 'plain-ring': !entry.favorite }"
+      >
         <!-- which item this is, at the top middle of the photo / video (in
              photo fullscreen: of the screen, counting the photos); on a video
              in the player's colored glass, like its buttons -->
@@ -494,7 +499,7 @@ onUnmounted(() => {
           :key="item.path"
           type="button"
           class="thumb"
-          :class="{ current: isLit(item) }"
+          :class="{ current: isLit(item), hearted: item.favorite }"
           :data-path="item.path"
           :title="item.name"
           @click="onThumbClick(item)"
@@ -553,6 +558,17 @@ onUnmounted(() => {
   border-radius: 6px;
   max-width: 100%;
   cursor: default;
+}
+
+/* the ring fades in / out as the item is hearted / unhearted */
+.lightbox-frame::before {
+  transition: opacity 0.25s ease;
+}
+
+/* not hearted: no colored ring, like the grid's cards (GalleryCard.vue's
+   .plain-ring), so the hearted ones stand out here too */
+.lightbox-frame.plain-ring::before {
+  opacity: 0;
 }
 
 .lightbox-frame img {
@@ -806,12 +822,46 @@ onUnmounted(() => {
   display: block;
 }
 
-/* the one on screen: full strength, in the theme's ring colors */
+/* the one on screen: full strength (the others are dimmed). No border of its
+   own: the colored one is only for hearted ones (.thumb.hearted) */
 .thumb.current {
   opacity: 1;
-  box-shadow:
-    0 0 0 2px var(--theme-cyan),
-    0 0 10px 1px color-mix(in srgb, var(--theme-purple) 60%, transparent);
+}
+
+/* hearted: the theme's ring colors (as in styles/ring.css) as a border inside
+   its edge, like the hearted photo / video above and the grid's cards. Inside,
+   not around it: the thumbnail clips what's outside its corners. A gradient
+   cut down to a border: the padding's ring is all that stays of it */
+.thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 200deg,
+    var(--theme-purple),
+    var(--theme-blue),
+    var(--theme-cyan),
+    var(--theme-green),
+    var(--theme-pink),
+    var(--theme-purple)
+  );
+  filter: saturate(var(--ring-vibrancy, 1));
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.thumb.hearted::after {
+  opacity: 1;
 }
 
 .thumb-play {
