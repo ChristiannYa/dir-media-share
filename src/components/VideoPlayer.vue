@@ -226,6 +226,38 @@ function onScrubEnd() {
   showControls()
 }
 
+// ── Sound: asks first ──
+// Turning the sound on asks to confirm, once per opening of this video: the
+// lightbox makes a new player for each item, so swapping to another video
+// and back, or closing the viewer and opening it again, asks again. Turning
+// it off never asks. Drawn inside the player, so it shows in fullscreen too
+
+/** The "Turn on the sound?" popup is showing */
+const confirmingSound = ref(false)
+/** Sound was confirmed for this opening: it can be turned on again without asking */
+let soundConfirmed = false
+
+/** The sound button (or the M key) */
+function onSoundToggle() {
+  if (!muted.value || soundConfirmed) {
+    toggleMute()
+    return
+  }
+  confirmingSound.value = true
+  showControls()
+}
+
+function confirmSound() {
+  confirmingSound.value = false
+  soundConfirmed = true
+  // the tap on "Turn on" is the gesture the browser wants for sound
+  toggleMute()
+}
+
+function cancelSound() {
+  confirmingSound.value = false
+}
+
 // ── "+10s" bubble ──
 type Side = 'back' | 'forward'
 const feedback = ref<Side | null>(null)
@@ -355,7 +387,12 @@ function onKeydown(e: KeyboardEvent) {
       toggleFullscreen()
       break
     case 'm':
-      toggleMute()
+      onSoundToggle()
+      break
+    case 'Enter':
+      // the sound popup is open: Enter confirms it
+      if (!confirmingSound.value) return
+      confirmSound()
       break
     default:
       return
@@ -474,6 +511,29 @@ onUnmounted(() => {
 
     <div v-if="failed" class="error">Can't play this video</div>
 
+    <!-- turning the sound on: asks first (once per opening of this video).
+         Taps here don't reach the video or the viewer behind it -->
+    <div
+      v-if="confirmingSound"
+      class="sound-confirm-backdrop"
+      @click.stop.self="cancelSound"
+      @pointerdown.stop
+    >
+      <div
+        class="sound-confirm theme-glass"
+        role="alertdialog"
+        aria-labelledby="sound-confirm-title"
+        @click.stop
+      >
+        <p id="sound-confirm-title" class="sound-confirm-title">Turn on the sound?</p>
+        <p class="sound-confirm-text">Are you sure you want to play this video with sound?</p>
+        <div class="sound-confirm-actions">
+          <button type="button" class="sound-confirm-cancel" @click="cancelSound">Cancel</button>
+          <button type="button" class="sound-confirm-ok" @click="confirmSound">Turn on</button>
+        </div>
+      </div>
+    </div>
+
     <!-- stuck: spinner, and why (so a freeze with plenty downloaded makes sense) -->
     <div v-if="shownStall" class="stall theme-glass" role="status">
       <span class="spinner" />
@@ -521,7 +581,7 @@ onUnmounted(() => {
 
         <span v-if="quality" class="quality theme-glass" title="Video quality">{{ quality }}</span>
 
-        <button class="theme-glass" :aria-label="muted ? 'Unmute' : 'Mute'" @click="toggleMute">
+        <button class="theme-glass" :aria-label="muted ? 'Unmute' : 'Mute'" @click="onSoundToggle">
           <svg v-if="muted" viewBox="0 0 24 24">
             <path
               d="M3 9v6h4l5 5V4L7 9H3zm16.6 3 2.4-2.4-1.4-1.4-2.4 2.4-2.4-2.4-1.4 1.4 2.4 2.4-2.4 2.4 1.4 1.4 2.4-2.4 2.4 2.4 1.4-1.4z"
@@ -987,6 +1047,89 @@ svg {
   }
   to {
     opacity: 0;
+  }
+}
+
+/* ── Sound confirmation ── */
+/* over everything in the player (controls included); a tap outside the box cancels */
+.sound-confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.45);
+  animation: sound-confirm-fade 0.18s ease-out;
+}
+
+.sound-confirm {
+  max-width: 18rem;
+  padding: 1rem 1.1rem 0.9rem;
+  border-radius: 14px;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  animation: sound-confirm-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.sound-confirm-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.sound-confirm-text {
+  margin: 0 0 0.9rem;
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.sound-confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.sound-confirm-actions button {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.sound-confirm-actions button:hover {
+  filter: brightness(1.25);
+}
+
+.sound-confirm-cancel {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sound-confirm-ok {
+  background: linear-gradient(90deg, var(--theme-cyan), var(--theme-blue), var(--theme-pink));
+}
+
+@keyframes sound-confirm-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sound-confirm-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sound-confirm {
+    animation: sound-confirm-fade 0.18s ease-out;
   }
 }
 
