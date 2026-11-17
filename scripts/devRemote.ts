@@ -8,7 +8,8 @@
 // Ctrl+C stops the app there too.
 //
 // Never copied, and never deleted there: what git ignores (node_modules,
-// dist…), .git/, and config/ (the host's own settings and recorded data).
+// dist…), .git/, .claude/, and config/ (the host's own settings and recorded
+// data).
 //
 //   MED_HOST=christianya@10.0.0.12 npm run dev:remote
 //   MED_HOST=… npm run dev:remote -- --dry-run   (lists what would be copied or deleted, then stops)
@@ -34,7 +35,7 @@ const DEBOUNCE_MS = 150
 const ROOT = path.resolve(import.meta.dirname, '..')
 
 /** Top folders never copied (on top of what .gitignore lists) */
-const SKIPPED = ['.git', 'node_modules', 'dist', 'config']
+const SKIPPED = ['.git', '.claude', 'node_modules', 'dist', 'config']
 
 if (!HOST) {
   console.error('❌ Set MED_HOST to the SSH target of the host, e.g. MED_HOST=christianya@10.0.0.12')
@@ -62,6 +63,8 @@ function rsyncArgs(): string[] {
     // whatever git ignores, in every folder
     '--filter=:- .gitignore',
     '--exclude=/.git/',
+    // the host's own Claude Code settings
+    '--exclude=/.claude/',
     // the host's own settings and recorded data (hearts, views, heatmaps)
     '--exclude=/config/',
     `${ROOT}/`,
