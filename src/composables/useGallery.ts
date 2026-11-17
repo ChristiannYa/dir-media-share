@@ -1,5 +1,5 @@
 import { computed, ref, type InjectionKey, type Ref } from 'vue'
-import { fetchEntries, fetchInfo } from '@/api'
+import { fetchEntries, fetchInfo, setSharedCacheVersion } from '@/api'
 import type { Crumb, Entry } from '@/types'
 
 /**
@@ -77,6 +77,8 @@ export function useGallery(hooks: GalleryHooks = {}) {
   async function init(path = '') {
     const info = await fetchInfo()
     rootFolderName.value = info.folder_name
+    // before the grid draws: its stills' URLs include it
+    if (typeof info.cache_version === 'number') setSharedCacheVersion(info.cache_version)
     await navigate(path)
   }
 

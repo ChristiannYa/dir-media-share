@@ -1,4 +1,5 @@
 import { reactive, watch } from 'vue'
+import { setSharedCacheVersion } from '@/api'
 import { API, PREVIEW_RECHECK_MS } from '@/constants'
 
 /** Which kind of preview a server job builds (matches server/jobEvents.ts) */
@@ -52,6 +53,15 @@ function connect() {
       // not a job event
     }
   }
+  // a cache was cleared, here or on another device: fresh stills and previews
+  stream.addEventListener('cache', (message: MessageEvent<string>) => {
+    try {
+      const { version } = JSON.parse(message.data) as { version: number }
+      if (typeof version === 'number') setSharedCacheVersion(version)
+    } catch {
+      // malformed: the next page load gets the version from /api/info anyway
+    }
+  })
 }
 
 /**

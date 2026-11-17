@@ -325,7 +325,10 @@ export const SHUTDOWN_CONFIRM = 'Shut down the server?'
 export const CLEAR_CACHE_LABEL = 'Clear cache'
 /** Asked before clearing; `{name}` is replaced by the folder name */
 export const CLEAR_CACHE_CONFIRM =
-  'Delete the cached stills, previews and storyboards of everything in "{name}"? They are rebuilt the next time they are needed. Your files are not touched.'
+  'Delete the cached stills, previews and storyboards of everything in "{name}"? They are rebuilt the next time they are needed, on every device. Your files are not touched.'
+/** Asked before the Settings → Server button empties the whole cache */
+export const CLEAR_ALL_CACHES_CONFIRM =
+  'Delete every cached still, preview and storyboard, of every folder? Every device fetches fresh ones, and they are rebuilt as they are viewed again, which takes a while for big folders. Your files are not touched.'
 /** Folder menu item that creates a subfolder inside it */
 export const NEW_FOLDER_LABEL = 'New folder'
 /** Folder menu item that renames its photos and videos after it, numbered by age */

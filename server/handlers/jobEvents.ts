@@ -1,5 +1,5 @@
 import { sendJson, type Handler } from '../http.ts'
-import { cancelJobs, onJob } from '../jobEvents.ts'
+import { cancelJobs, onCacheCleared, onJob } from '../jobEvents.ts'
 
 /** Comment line sent now and then so proxies and browsers keep the stream open */
 const KEEPALIVE_MS = 25_000
@@ -7,6 +7,8 @@ const KEEPALIVE_MS = 25_000
 /**
  * GET /api/jobs/events : a Server-Sent Events stream of preview build progress
  * (queued / encoding / done / failed / cancelled). The page keeps one open for all cards.
+ * Also `event: cache` with `{ version }` when a cache was cleared on any
+ * device, so every open page drops its own copies (server/cacheVersion.ts).
  */
 export const jobEvents: Handler = async (req, res) => {
   res.writeHead(200, {
@@ -17,9 +19,13 @@ export const jobEvents: Handler = async (req, res) => {
   res.write(': connected\n\n')
 
   const stop = onJob((event) => res.write(`data: ${JSON.stringify(event)}\n\n`))
+  const stopCache = onCacheCleared((version) =>
+    res.write(`event: cache\ndata: ${JSON.stringify({ version })}\n\n`),
+  )
   const keepalive = setInterval(() => res.write(': ping\n\n'), KEEPALIVE_MS)
   req.on('close', () => {
     stop()
+    stopCache()
     clearInterval(keepalive)
   })
 }

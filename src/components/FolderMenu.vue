@@ -4,7 +4,7 @@ import CardMenu from '@/components/CardMenu.vue'
 import NewFolderDialog from '@/components/NewFolderDialog.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import UploadDialog from '@/components/UploadDialog.vue'
-import { bumpCacheVersion, clearCache, numberFiles } from '@/api'
+import { clearCache, numberFiles } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { REVEAL_ENTRY_KEY } from '@/composables/useGallery'
 import {
@@ -128,13 +128,13 @@ const items: MenuItem[] = [
   },
   {
     label: CLEAR_CACHE_LABEL,
-    description: 'Rebuild stills, previews and storyboards',
+    description: 'Rebuild stills, previews and storyboards, on every device',
     icon: ICON_CLEAR_CACHE,
     busyLabel: 'Clearing…',
     confirm: { message: CLEAR_CACHE_CONFIRM.replace('{name}', props.name) },
     async run() {
+      // every device (this one included) gets fresh copies (api.ts, sharedCacheVersion)
       const removed = await clearCache(props.path)
-      bumpCacheVersion()
       return removed === 1 ? 'Removed 1 file' : `Removed ${removed} files`
     },
   },

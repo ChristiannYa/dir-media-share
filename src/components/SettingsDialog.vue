@@ -4,6 +4,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import SettingRow from '@/components/SettingRow.vue'
 import {
   bumpCacheVersion,
+  clearAllCaches,
   fetchServerSettings,
   previewGeneration,
   saveServerSettings,
@@ -12,7 +13,7 @@ import {
 } from '@/api'
 import { lockNow } from '@/composables/useLock'
 import { useSettingsDraft, type SettingsDraft } from '@/composables/useSettingsDraft'
-import { SETTING_USES_STORAGE_KEY } from '@/constants'
+import { CLEAR_ALL_CACHES_CONFIRM, SETTING_USES_STORAGE_KEY } from '@/constants'
 import { ICON_CHEVRON } from '@/icons'
 import { haptic } from '@/utils/haptics'
 import { measureScreenHz, screenHz } from '@/utils/screenRate'
@@ -75,6 +76,38 @@ onMounted(() => {
   // fresh reading, in case it changed (Low Power Mode, another monitor…)
   measureScreenHz()
 })
+
+// ── Clear all caches (Server tab → Caching) ──
+// Right away, not on Done: it's an action, not a setting. Every device gets
+// fresh stills and previews (api.ts, sharedCacheVersion)
+
+/** The server's section the button is shown in (server/settings.ts) */
+const CACHING_GROUP_TITLE = 'Caching'
+
+const clearing = ref(false)
+/** What the last clear did ("Removed 120 files"), or why it failed */
+const clearResult = ref<{ text: string; failed: boolean } | null>(null)
+
+async function clearAll() {
+  if (clearing.value || !confirm(CLEAR_ALL_CACHES_CONFIRM)) return
+  clearing.value = true
+  clearResult.value = null
+  try {
+    const removed = await clearAllCaches()
+    haptic('tap')
+    clearResult.value = {
+      text: removed === 1 ? 'Removed 1 file' : `Removed ${removed} files`,
+      failed: false,
+    }
+  } catch (e) {
+    clearResult.value = {
+      text: e instanceof Error ? e.message : 'Clearing the cache failed',
+      failed: true,
+    }
+  } finally {
+    clearing.value = false
+  }
+}
 
 // ── Done ──
 const saving = ref(false)
@@ -468,6 +501,29 @@ async function done() {
               />
             </div>
           </div>
+          <!-- Server → Caching: empties the whole cache, for every device -->
+          <div v-if="tab === 'server' && group.title === CACHING_GROUP_TITLE" class="cache-action">
+            <div class="cache-action-row">
+              <div class="cache-action-text">
+                <span class="cache-action-title">Clear all caches</span>
+                <span class="cache-action-help">
+                  Deletes every still, preview and storyboard on the server. Every device fetches
+                  fresh ones; they're rebuilt as they're viewed again. Your files aren't touched.
+                </span>
+              </div>
+              <button type="button" class="button small" :disabled="clearing" @click="clearAll">
+                {{ clearing ? 'Clearing…' : 'Clear' }}
+              </button>
+            </div>
+            <p
+              v-if="clearResult"
+              class="cache-action-result"
+              :class="{ failed: clearResult.failed }"
+              role="status"
+            >
+              {{ clearResult.text }}
+            </p>
+          </div>
         </div>
       </section>
       </template>
@@ -685,6 +741,53 @@ async function done() {
   background: rgba(255, 255, 255, 0.035);
   color: #999;
   font-size: 0.82rem;
+}
+
+/* ── Clear all caches (Server tab → Caching) ── */
+.cache-action {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border: 1px solid var(--edge-soft);
+  border-radius: 0.7rem;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.cache-action-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.cache-action-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.cache-action-title {
+  color: #ddd;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.cache-action-help {
+  color: #8f88aa;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.cache-action-result {
+  margin: 0;
+  color: #7fd6a0;
+  font-size: 0.78rem;
+}
+
+.cache-action-result.failed {
+  color: #f07060;
 }
 
 /* ── Buttons ── */

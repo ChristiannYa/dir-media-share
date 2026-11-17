@@ -24,7 +24,8 @@ export const ROUTE_CANCEL_JOB = '/api/jobs/cancel'
 export const ROUTE_STORYBOARD = '/api/storyboard'
 /**
  * Deletes the cached stills, previews and storyboards of every video in a
- * folder and its subfolders, so they get rebuilt: POST ?path=
+ * folder and its subfolders, so they get rebuilt: POST ?path= ; or the whole
+ * cache: POST ?all=1. Every device gets fresh copies (server/cacheVersion.ts)
  */
 export const ROUTE_CLEAR_CACHE = '/api/cache/clear'
 /** Just the subfolders of a folder (fast; used by the "Move to…" picker): GET ?path= */

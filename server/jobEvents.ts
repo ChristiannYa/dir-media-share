@@ -82,6 +82,17 @@ export function emitJob(event: JobEvent) {
   bus.emit('job', event)
 }
 
+/** A cache was cleared: every open page hears the new shared cache version (server/cacheVersion.ts) */
+export function emitCacheCleared(version: number) {
+  bus.emit('cache', version)
+}
+
+/** Calls `listener` whenever a cache is cleared; returns a function that stops it */
+export function onCacheCleared(listener: (version: number) => void): () => void {
+  bus.on('cache', listener)
+  return () => bus.off('cache', listener)
+}
+
 /** Calls `listener` for every job event; returns a function that stops it */
 export function onJob(listener: (event: JobEvent) => void): () => void {
   bus.on('job', listener)

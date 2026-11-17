@@ -78,6 +78,11 @@ export const VIEWS_FILE = path.join(DATA_DIR, 'views.json')
  */
 export const PLAYS_FILE = path.join(DATA_DIR, 'plays.json')
 /**
+ * The cache version shared by every device (server/cacheVersion.ts): a
+ * number that goes up each time a cache is cleared
+ */
+export const CACHE_VERSION_FILE = path.join(DATA_DIR, 'cache-version.json')
+/**
  * How many times each part of each video was watched (server/heatmap.ts), for
  * the "most watched parts" over the player's slider: path → counts. Shared by
  * every device.

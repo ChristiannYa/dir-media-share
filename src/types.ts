@@ -38,6 +38,8 @@ export interface Entry {
 /** Returned by /api/info */
 export interface ServerInfo {
   folder_name: string
+  /** The cache version shared by every device (server/cacheVersion.ts) */
+  cache_version?: number
 }
 
 /**

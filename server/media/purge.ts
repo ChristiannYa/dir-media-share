@@ -6,9 +6,10 @@
 // folder (server/previewNames.ts). (Files made with older settings are
 // never used again anyway.)
 
-import { unlink } from 'node:fs/promises'
+import { readdir, rm, unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { cacheFile, cacheName, tempFor } from '../cache.ts'
+import { cacheFile, cacheName, isRunning, tempFor } from '../cache.ts'
+import { PREVIEW_DIR } from '../consts/previews.ts'
 import { STORYBOARD_DIR } from '../consts/storyboards.ts'
 import { THUMB_DIR } from '../consts/thumbnails.ts'
 import { isVideoName } from '../listing.ts'
@@ -64,6 +65,37 @@ async function purgeFolderPreview(dir: string): Promise<number> {
   for (let variant = 0; variant < serverSettings.folderPreviewVariants; variant++) {
     const clip = await existingPreviewFile(folderId(rel, variant))
     if (clip && (await remove(clip))) removed++
+  }
+  return removed
+}
+
+/**
+ * Empties the whole cache at once: every still, preview (video and folder)
+ * and storyboard, of every folder. Much faster than purgeFolder on the shared
+ * folder, which walks every video. Files being built right now (and their
+ * temp files) are left alone: their build would fail otherwise. The preview
+ * names (PREVIEW_NAMES_FILE) are kept: they're outside the cache folders, and
+ * a missing clip is simply built again under its name. Returns how many files
+ * were deleted.
+ */
+export async function purgeAll(): Promise<number> {
+  let removed = 0
+  for (const dir of [THUMB_DIR, PREVIEW_DIR, STORYBOARD_DIR]) {
+    const names = await readdir(dir).catch(() => [] as string[])
+    const results = await Promise.all(
+      names.map(async (name) => {
+        const file = path.join(dir, name)
+        // builds are keyed by their output file; a temp file belongs to one
+        if (isRunning(file) || isRunning(file.replace(/\.tmp(\.\w+)$/, '$1'))) return false
+        try {
+          await rm(file, { recursive: true, force: true })
+          return true
+        } catch {
+          return false
+        }
+      }),
+    )
+    removed += results.filter(Boolean).length
   }
   return removed
 }
