@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import AppModeButton from '@/components/AppModeButton.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import NightSky from '@/components/NightSky.vue'
 import VideoScrubber from '@/components/VideoScrubber.vue'
 import { recordsVideoData } from '@/appMode'
 import { useAutoHide } from '@/composables/useAutoHide'
+import { useContainedInset } from '@/composables/useContainedInset'
 import { useHeatmap } from '@/composables/useHeatmap'
 import { useHoldSeek } from '@/composables/useHoldSeek'
 import { onCaptureResume, type ViewerResume } from '@/composables/useResume'
@@ -75,6 +77,11 @@ const {
   rotate,
   onError,
 } = useVideoPlayer(video, root)
+
+// Fullscreen: the player fills the screen and the video is fitted inside it,
+// so a video of another shape leaves bands. What's drawn over the video (the
+// lock timer, the app mode, the resolution) goes inside the video, not in them
+const inset = useContainedInset(root, () => (fullscreen.value ? boxAspect.value : null))
 
 // ── Most watched parts (drawn over the slider, like YouTube) ──
 const heatmap = useHeatmap(props.path, video)
@@ -422,7 +429,11 @@ onUnmounted(() => {
     ref="root"
     class="player"
     :class="{ 'controls-hidden': !controlsVisible, fullscreen }"
-    :style="{ '--aspect': boxAspect }"
+    :style="{
+      '--aspect': boxAspect,
+      '--media-inset-x': `${inset.x.value}px`,
+      '--media-inset-y': `${inset.y.value}px`,
+    }"
     @pointermove="onPointerMove"
   >
     <!-- fullscreen: the night sky around the video instead of black -->
@@ -541,9 +552,14 @@ onUnmounted(() => {
       <span class="stall-text">{{ STALL_TEXT[shownStall] }}</span>
     </div>
 
-    <!-- fullscreen: time left until the app locks, at the top left; shows and
-         hides with the controls (the viewer's own one is outside fullscreen) -->
-    <LockTimer v-if="fullscreen" class="player-timer control theme-glass" />
+    <!-- fullscreen, top left: the time left until the app locks (shows and
+         hides with the controls) and the app mode with its image (always
+         shown, even when the controls are hidden). The viewer's own are
+         outside fullscreen -->
+    <div v-if="fullscreen" class="player-status">
+      <LockTimer class="player-timer control theme-glass" />
+      <AppModeButton class="player-mode theme-glass" />
+    </div>
     <!-- fullscreen: the resolution at the top right (outside fullscreen the
          viewer shows its own, MediaLightbox.vue) -->
     <span
@@ -932,12 +948,71 @@ svg {
   pointer-events: none;
 }
 
-/* ── Lock countdown (fullscreen) ── */
-/* a pill like the time, pinned to the screen's top left */
-.player-timer {
+/* ── Lock countdown and app mode (fullscreen) ── */
+/* pinned to the screen's top left, side by side. The row lets taps through
+   (to the video under it); only the mode takes them. Not a .control: the mode
+   stays when the controls hide (the timer, a .control, fades by itself) */
+.player-status {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
+  z-index: 3;
+  /* inside the video: past the bands a differently shaped video leaves (useContainedInset) */
+  top: calc(var(--media-inset-y, 0px) + 1rem);
+  left: calc(var(--media-inset-x, 0px) + 1rem);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  pointer-events: none;
+  /* the pills' height (one line, padding, 1px rim): the mode's image
+     (AppModeImage.vue) is a circle this big, so all three line up */
+  --mode-image-size: calc(0.8rem * 1.25 + 0.6rem + 2px);
+}
+
+.player-status :deep(.app-mode-group) {
+  pointer-events: auto;
+}
+
+/* the mode's pill: the same as the lock timer beside it (the pill is inside
+   AppModeButton, where this file's scoped styles reach only with :deep) */
+.player-status :deep(.player-mode) {
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.25;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+/* when the controls hide, the timer shrinks away to nothing, so the app mode
+   beside it slides left into its room, keeping the breathing space from the
+   video's edge (the same as from its top) */
+.player-timer {
+  max-width: 10rem;
+  overflow: hidden;
+  transition:
+    opacity var(--overlay-fade),
+    max-width var(--overlay-fade),
+    padding var(--overlay-fade),
+    margin var(--overlay-fade);
+}
+
+.player.controls-hidden .player-timer {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  border-right-width: 0;
+  /* the gap beside it goes too */
+  margin-right: -0.4rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .player-timer {
+    transition: none;
+  }
+}
+
+/* a pill like the time */
+.player-timer {
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
   color: #fff;
@@ -1023,8 +1098,8 @@ svg {
    pill as the lock timer opposite it, a little bolder */
 .player-quality {
   position: absolute;
-  top: 1rem;
-  right: 1rem;
+  top: calc(var(--media-inset-y, 0px) + 1rem);
+  right: calc(var(--media-inset-x, 0px) + 1rem);
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
   color: #fff;

@@ -6,6 +6,7 @@ import NightSky from '@/components/NightSky.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import { fileUrl, storyboardUrl, thumbUrl } from '@/api'
 import { useAutoHide } from '@/composables/useAutoHide'
+import { useContainedInset } from '@/composables/useContainedInset'
 import { onCaptureResume, takeViewerResume, type ViewerResume } from '@/composables/useResume'
 import { settings } from '@/settings'
 import type { Entry } from '@/types'
@@ -228,6 +229,59 @@ const videoQuality = computed(() => {
   return e?.kind === 'video' ? formatQuality(e.width, e.height, e.fps) || null : null
 })
 
+// ── Size of what's over the media ──
+// The counter, the lock timer, the app mode and the resolution scale with the
+// media's width (--overlay-scale): smaller on a small photo, so they don't
+// cover it, and a little bigger on a large one. Fullscreen: always full size
+
+/** Media width (px) at which they're full size */
+const OVERLAY_REF_WIDTH = 640
+const OVERLAY_MIN_SCALE = 0.75
+const OVERLAY_MAX_SCALE = 1.2
+
+const frame = ref<HTMLElement | null>(null)
+const mediaScale = ref(1)
+
+const frameResize = new ResizeObserver((entries) => {
+  const width = entries[0]?.contentRect.width ?? OVERLAY_REF_WIDTH
+  mediaScale.value = Math.min(
+    OVERLAY_MAX_SCALE,
+    Math.max(OVERLAY_MIN_SCALE, width / OVERLAY_REF_WIDTH),
+  )
+})
+// the frame is a new element for each item (its :key)
+watch(
+  frame,
+  (el, old) => {
+    if (old) frameResize.unobserve(old)
+    if (el) frameResize.observe(el)
+  },
+  { flush: 'post' },
+)
+onUnmounted(() => frameResize.disconnect())
+
+// Photo fullscreen: the frame fills the screen and the photo is fitted inside
+// it, leaving bands when its shape differs. The counter and the pills over it
+// go inside the photo, not in them (useContainedInset). A photo turned
+// sideways is shown with its sides swapped
+const imageAspect = ref<number | null>(null)
+
+function onImageLoad(e: Event) {
+  const img = e.target as HTMLImageElement
+  imageAspect.value = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : null
+  if (props.entry) emit('viewed', props.entry)
+}
+watch(
+  () => props.entry?.path,
+  () => (imageAspect.value = null),
+)
+
+const inset = useContainedInset(frame, () => {
+  const a = imageAspect.value
+  if (!fullscreen.value || props.entry?.kind !== 'image' || !a) return null
+  return sideways.value ? 1 / a : a
+})
+
 /** Photo fullscreen: any tap, mouse move or key shows what's over the photo (on a video the player handles its own) */
 function onActivity() {
   if (fullscreen.value) showOverlay()
@@ -415,8 +469,14 @@ onUnmounted(() => {
       <!-- the colored ring only around hearted ones, like the grid's cards -->
       <div
         :key="entry.path"
+        ref="frame"
         class="lightbox-frame ring-frame"
         :class="{ 'plain-ring': !entry.favorite }"
+        :style="{
+          '--overlay-scale': fullscreen ? 1 : mediaScale,
+          '--media-inset-x': `${inset.x.value}px`,
+          '--media-inset-y': `${inset.y.value}px`,
+        }"
       >
         <!-- which item this is, at the top middle of the photo / video (in
              photo fullscreen: of the screen, counting the photos); on a video
@@ -449,7 +509,7 @@ onUnmounted(() => {
           draggable="false"
           :class="{ rotated: fullscreen && rotation !== 0, sideways }"
           :style="fullscreen && rotation !== 0 ? { '--rotation': `${rotation}deg` } : undefined"
-          @load="emit('viewed', entry)"
+          @load="onImageLoad"
           @pointerdown="onSwipeStart"
           @pointerup="onSwipeEnd"
           @pointercancel="onSwipeCancel"
@@ -684,26 +744,28 @@ onUnmounted(() => {
 .media-counter {
   position: absolute;
   z-index: 5;
-  top: 0.6rem;
+  top: calc(0.6rem * var(--overlay-scale, 1));
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
   /* the same height as the pills at the top left (.media-pill): their font
      size, line height, padding and 1px rim. It used to be a bigger font with
-     the font's own line height, a few px taller */
-  padding: 0.3rem 0.75rem;
+     the font's own line height, a few px taller. All scale with the media
+     (--overlay-scale, set on the frame) */
+  padding: calc(0.3rem * var(--overlay-scale, 1)) calc(0.75rem * var(--overlay-scale, 1));
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--overlay-scale, 1));
   line-height: 1.25;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
 }
 
-/* photo fullscreen: pinned to the top middle of the screen, like the buttons */
+/* photo fullscreen: at the top middle of the photo (past the bands a photo of
+   another shape leaves: --media-inset-y, set on the frame) */
 .lightbox.fullscreen .media-counter {
   position: fixed;
-  top: 1rem;
+  top: calc(var(--media-inset-y, 0px) + 1rem);
 }
 
 /* the lock countdown and the app mode, side by side at the top left of the
@@ -713,16 +775,17 @@ onUnmounted(() => {
 .media-status {
   position: absolute;
   z-index: 5;
-  top: 0.6rem;
-  left: 0.6rem;
-  right: 0.6rem;
+  top: calc(0.6rem * var(--overlay-scale, 1));
+  left: calc(0.6rem * var(--overlay-scale, 1));
+  right: calc(0.6rem * var(--overlay-scale, 1));
   pointer-events: none;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: calc(0.4rem * var(--overlay-scale, 1));
   /* the pills' height (one line, padding, 1px rim): the mode's image
-     (AppModeImage.vue) is a circle this big, so all three line up */
-  --mode-image-size: calc(0.8rem * 1.25 + 0.6rem + 2px);
+     (AppModeImage.vue) is a circle this big, so all three line up. Both
+     scale with the media (--overlay-scale, set on the frame) */
+  --mode-image-size: calc((0.8rem * 1.25 + 0.6rem) * var(--overlay-scale, 1) + 2px);
 }
 
 /* both the same pill (the double class wins over AppModeButton.vue's own
@@ -730,9 +793,9 @@ onUnmounted(() => {
    :deep: the mode's pill sits inside AppModeButton (its group is the root),
    where this file's scoped styles don't reach on their own */
 .media-status :deep(.media-pill) {
-  padding: 0.3rem 0.65rem;
+  padding: calc(0.3rem * var(--overlay-scale, 1)) calc(0.65rem * var(--overlay-scale, 1));
   border-radius: 999px;
-  font-size: 0.8rem;
+  font-size: calc(0.8rem * var(--overlay-scale, 1));
   /* set, not the font's own: the image's size above counts on it */
   line-height: 1.25;
 }
@@ -760,12 +823,13 @@ onUnmounted(() => {
   }
 }
 
-/* photo fullscreen: the top of the screen */
+/* photo fullscreen: the top of the photo, inside it (--media-inset-x / -y,
+   set on the frame, are the bands a photo of another shape leaves) */
 .lightbox.fullscreen .media-status {
   position: fixed;
-  top: 1rem;
-  left: 1rem;
-  right: 1rem;
+  top: calc(var(--media-inset-y, 0px) + 1rem);
+  left: calc(var(--media-inset-x, 0px) + 1rem);
+  right: calc(var(--media-inset-x, 0px) + 1rem);
 }
 
 /* the counter, the lock timer and the mode on a photo: dark glass, like the
@@ -812,6 +876,60 @@ onUnmounted(() => {
 .lightbox.overlay-off .media-status :deep(.app-mode-group > *) {
   opacity: 0;
   pointer-events: none;
+}
+
+/* the app mode and its image stay, in the carousel and in photo fullscreen,
+   even when the rest has faded out (after the rule above, so it wins) */
+.lightbox.overlay-off .media-status :deep(.app-mode-group > *) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* When the rest hides, the app mode slides to the nearest edge of the media
+   (the left one; on small screens, where it sits on the right, the right
+   one) instead of staying where it was, keeping the same breathing space
+   from the edge as from the top. The timer and the resolution shrink away to
+   nothing, so the mode moves into their room (the carousel and photo
+   fullscreen; a video's fullscreen does the same in VideoPlayer.vue) */
+.media-status > :not(.app-mode-group) {
+  max-width: 10rem;
+  overflow: hidden;
+  transition:
+    opacity var(--overlay-fade),
+    max-width var(--overlay-fade),
+    padding var(--overlay-fade),
+    margin var(--overlay-fade),
+    background 0.15s,
+    color 0.15s;
+}
+
+.lightbox.overlay-off .media-status > :not(.app-mode-group) {
+  max-width: 0;
+  padding-left: 0;
+  padding-right: 0;
+  border-left-width: 0;
+  border-right-width: 0;
+  /* the gap beside it goes too */
+  margin-right: calc(-0.4rem * var(--overlay-scale, 1));
+}
+
+/* the resolution is last: its gap is on its left (wide screens: the auto
+   margin that pushes it right is gone with it, nothing to cancel) */
+.lightbox.overlay-off .media-status > .media-quality {
+  margin-right: 0;
+  margin-left: calc(-0.4rem * var(--overlay-scale, 1));
+}
+
+@media (min-width: 601px) {
+  .lightbox.overlay-off .media-status > .media-quality {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-status > :not(.app-mode-group) {
+    transition: none;
+  }
 }
 
 /* the mouse pointer goes away with them */
