@@ -36,6 +36,9 @@
   --grid-gap: 1rem;
   /* The same for folder cards (Settings → Look → Space between folders) */
   --folder-gap: 1rem;
+  /* And for the folders directly inside .lock and .bin (Settings → Look →
+     Space between top folders) */
+  --top-folder-gap: 1rem;
   /* How far a card's ring and glass border reach past its edge: the grid's
      gaps grow by this (App.vue) */
   --card-outset: 0px; /* the ring and glass border are drawn inside the cards now, so they take no room from the gaps */

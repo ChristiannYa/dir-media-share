@@ -13,7 +13,7 @@ import {
   thumbUrl,
 } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { REVEAL_MS, THEMED_NAME_PARENTS, TS_BADGE_TITLE } from '@/constants'
+import { REVEAL_MS, TOP_FOLDER_PARENTS, TS_BADGE_TITLE } from '@/constants'
 import { ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
@@ -120,6 +120,14 @@ const isMedia = computed(() => isMediaEntry(props.entry))
  * Hearted photos and videos (not in Most played) wear the player's colored
  * glass (.theme-glass) on their badges, the rest the dark one (.badge-glass)
  */
+/** A folder directly inside .lock or .bin (TOP_FOLDER_PARENTS): it has its own spacing */
+const isTopFolder = computed(() => {
+  if (props.entry.kind !== 'folder') return false
+  const parent = props.entry.path.split('/').filter(Boolean).at(-2)
+  // paths start below the shared folder (.lock itself): no parent = directly in it
+  if (parent === undefined) return true
+  return TOP_FOLDER_PARENTS.includes(parent.replace(/^\.+/, '').toLowerCase())
+})
 const coloredBadges = computed(() => isMedia.value && !!props.entry.favorite && !props.viewsOnly)
 const badgeGlass = computed(() => (coloredBadges.value ? 'theme-glass' : 'badge-glass'))
 
@@ -129,17 +137,6 @@ const quality = computed(() =>
     ? formatQuality(props.entry.width, props.entry.height, props.entry.fps)
     : null,
 )
-
-/**
- * A folder inside cinema, know, leaks or rand (THEMED_NAME_PARENTS, any depth,
- * leading dots and case ignored): its name is drawn in the theme colors, if
- * Settings → Look → Colored folder names is on
- */
-const themedName = computed(() => {
-  if (!settings.themedFolderNames || props.entry.kind !== 'folder') return false
-  const parents = props.entry.path.split('/').slice(0, -1)
-  return parents.some((p) => THEMED_NAME_PARENTS.includes(p.replace(/^\.+/, '').toLowerCase()))
-})
 
 /**
  * Folders: which of the server's random previews this card shows. Rolled once
@@ -216,7 +213,7 @@ onMounted(() => {
 onUnmounted(() => sizeObserver.disconnect())
 // a new gap (Settings) doesn't resize the card itself: measure again
 watch(
-  () => [settings.gridGap, settings.folderGap],
+  () => [settings.gridGap, settings.folderGap, settings.topFolderGap],
   () => nextTick(measureSpan),
 )
 
@@ -410,6 +407,8 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         // Not in Most played (viewsOnly): there every card is plain
         'plain-ring': isMedia,
         'colored-badges': coloredBadges,
+        'top-folder': isTopFolder,
+        'has-preview': entry.kind === 'folder' && hasPreview(entry),
         'is-loading': isLoading(entry, trackKey),
         selecting,
         selected,
@@ -453,7 +452,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       v-if="entry.kind === 'folder'"
       v-visible="trackKey"
       class="folder-wrap"
-      :class="{ 'no-preview': !hasPreview(entry) }"
+      :class="{ 'no-preview': !hasPreview(entry), 'with-name': !viewsOnly && hasPreview(entry) }"
     >
       <span class="folder-icon">📁</span>
       <!-- the still of the preview this card will play (its first video /
@@ -555,6 +554,12 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
           </span>
         </span>
       </div>
+      <!-- the name, on the bottom of the preview over a band of blur (.force-glass:
+           blurred even with Glass effect off). No name in the "Most played"
+           section: only the views there -->
+      <p v-if="!viewsOnly" class="label folder-name force-glass" :title="entry.name">
+        <span class="name">{{ entry.name }}</span>
+      </p>
     </div>
 
     <!-- Image -->
@@ -599,12 +604,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
             />
           </span>
         </button>
-        <span
-          v-if="entry.size"
-          class="info-badge size-badge"
-          :class="badgeGlass"
-          title="File size"
-        >
+        <span v-if="entry.size" class="info-badge size-badge" :class="badgeGlass" title="File size">
           <!-- hard drive -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -621,8 +621,8 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
     <div
       v-else-if="entry.kind === 'video'"
       v-visible="trackKey"
-      class="media-wrap"
-      :style="{ aspectRatio: mediaRatio }"
+      class="media-wrap video-wrap"
+      :style="{ '--media-ratio': mediaRatio }"
     >
       <div v-if="isThumbLoading(trackKey)" class="placeholder" />
       <div v-if="hasThumbFailed(trackKey)" class="thumb-failed">⚠</div>
@@ -728,12 +728,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
           </svg>
           {{ formatDuration(entry.duration) }}
         </span>
-        <span
-          v-if="entry.size"
-          class="info-badge size-badge"
-          :class="badgeGlass"
-          title="File size"
-        >
+        <span v-if="entry.size" class="info-badge size-badge" :class="badgeGlass" title="File size">
           <!-- hard drive -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -751,14 +746,8 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       <span class="folder-icon">📄</span>
     </div>
 
-    <!-- no name in the "Most played" section: only the views there -->
-    <p
-      v-if="!isMedia && !viewsOnly"
-      class="label"
-      :class="{ themed: themedName }"
-      :title="entry.name"
-    >
-      <!-- its own box, so a colored name's gradient spans the text, not the whole card -->
+    <!-- a file's name, under it (a folder's is inside its preview) -->
+    <p v-if="!isMedia && entry.kind !== 'folder' && !viewsOnly" class="label" :title="entry.name">
       <span class="name">{{ entry.name }}</span>
     </p>
 
@@ -1203,13 +1192,27 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   /* Space between folders (Settings → Look → Space between folders): the grid's
      gap is --grid-gap, so each side moves by half the difference (negative =
      closer). The row span adds the same under it (measureSpan) */
-  margin-inline: calc((var(--folder-gap) - var(--grid-gap)) / 2);
+  --own-gap: var(--folder-gap);
+  margin-inline: calc((var(--own-gap) - var(--grid-gap)) / 2);
+}
+
+/* folders directly inside .lock or .bin: their own spacing (Settings → Look →
+   Space between top folders) */
+.card.folder.top-folder {
+  --own-gap: var(--top-folder-gap);
 }
 
 @media (max-width: 480px) {
   .card.folder {
-    margin-inline: calc(0.75 * (var(--folder-gap) - var(--grid-gap)) / 2);
+    margin-inline: calc(0.75 * (var(--own-gap) - var(--grid-gap)) / 2);
   }
+}
+
+/* Hover, like a photo / video card: the card stays put and only the preview
+   inside zooms (.folder-still and the playing clip, below). Folders with no
+   preview still lift */
+.card.folder.has-preview:not(.selected):hover {
+  transform: none;
 }
 
 /* The folder's dark frosted glass, like the top bar's: the sky shows through,
@@ -1248,28 +1251,56 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   background: transparent;
 }
 
-/* name banner: a slightly darker pane of the same glass, split from the
-   icon area by a thin highlight line */
-.card.folder .label {
-  background: rgba(12, 11, 18, calc(0.25 * var(--glass-opacity)));
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 0 0 calc(var(--card-radius) - var(--card-border))
-    calc(var(--card-radius) - var(--card-border));
-  color: #d4cfe6;
+/* The folder's name sits on the bottom of its preview, over a band of blur
+   (.force-glass on it: blurred even with Glass effect off) and a light dark
+   layer, so it reads on any picture. --folder-name-h is the band's height (it
+   fits the name: leave it); --folder-extra-h is how much taller than a square
+   the preview is, on top of the band (.with-name below): raise it for a taller
+   folder, the name stays the same size */
+.card.folder,
+.card.video {
+  --folder-name-h: 2.8rem;
+  --folder-extra-h: 2.2rem;
+  --folder-grow: calc(var(--folder-name-h) + var(--folder-extra-h));
+}
+
+.card.folder .folder-name {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  height: var(--folder-name-h);
+  background: rgba(8, 7, 14, 0.35);
+  -webkit-backdrop-filter: blur(14px) saturate(130%);
+  backdrop-filter: blur(14px) saturate(130%);
+  color: #ece8f7;
   /* Semibold (Comic Code has it: styles/fonts.css); the big first letter keeps its Bold */
   font-weight: 600;
 }
 
 .card.folder .folder-wrap {
   overflow: hidden;
-  border-radius: calc(var(--card-radius) - var(--card-border))
-    calc(var(--card-radius) - var(--card-border)) 0 0;
+  border-radius: calc(var(--card-radius) - var(--card-border));
 }
 
-/* no name banner under it (the "Most played" section): it's the whole card,
-   so its bottom corners are rounded too, and the preview stays inside them */
-.card.folder.views-only .folder-wrap {
-  border-radius: calc(var(--card-radius) - var(--card-border));
+/* the square plus the name band: a pseudo-element as wide as nothing and as
+   tall as the card is wide + the band (padding percentages follow the width) */
+.card.folder .folder-wrap.with-name {
+  aspect-ratio: auto;
+}
+
+.card.folder .folder-wrap.with-name::before {
+  content: '';
+  flex: none;
+  width: 0;
+  padding-bottom: calc(100% + var(--folder-grow));
+}
+
+/* the icon sits in the part above the name band, also on the square folders
+   without a preview */
+.card.folder .folder-wrap:has(.folder-name) .folder-icon {
+  margin-bottom: var(--folder-name-h);
 }
 
 .folder-wrap {
@@ -1293,6 +1324,11 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   align-items: center;
   gap: 0.3rem;
   pointer-events: none;
+}
+
+/* above the name band, on the cards that have one (not "Most played") */
+.folder-wrap:has(.folder-name) .folder-badges {
+  bottom: calc(var(--badge-inset) + var(--folder-name-h));
 }
 
 .folder-badge {
@@ -1375,7 +1411,9 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   height: 100%;
   object-fit: cover;
   opacity: 0;
-  transition: opacity 0.2s;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
 }
 
 .folder-still.loaded {
@@ -1407,14 +1445,29 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   transition: transform 0.2s;
 }
 
+/* A video's preview is as much taller than its picture shape as a folder's is
+   than a square (--folder-grow): its width ÷ ratio, plus the same extra. 100cqw
+   is the card's width (the card is a size container, for this) */
+.card.video {
+  container-type: inline-size;
+}
+
+.media-wrap.video-wrap {
+  aspect-ratio: auto;
+  height: calc(100cqw / var(--media-ratio) + var(--folder-grow));
+}
+
 /* the preview (PreviewVideo) zooms with the still underneath it */
 .preview-video {
   transition: transform 0.2s;
 }
 
+/* the same zoom for a folder's preview (its still and the playing clip) */
 .card:hover .media-wrap img,
-.card:hover .media-wrap .preview-video {
-  transform: scale(1.1);
+.card:hover .media-wrap .preview-video,
+.card.folder:hover .folder-still,
+.card.folder:hover .preview-video {
+  transform: scale(1.2);
 }
 
 /* dark box until the still image has loaded */
@@ -1816,35 +1869,5 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   font-weight: 700;
   text-transform: capitalize;
   color: #e8e8e8;
-}
-
-/* Colored folder names (Settings → Look): the theme colors of the ring
-   around videos (styles/ring.css), fading into each other along the name */
-.label.themed .name {
-  background: linear-gradient(
-    90deg,
-    var(--theme-purple),
-    var(--theme-blue),
-    var(--theme-cyan),
-    var(--theme-green),
-    var(--theme-pink)
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  /* the gradient only fills this box, which is as tall as the small letters:
-     padding stretches it over the big first letter's top and the tails of
-     g / p / y (on an inline box it doesn't move the text or the line) */
-  padding: 0.6rem 0.1rem 0.3rem;
-}
-
-/* the big first letter too: see-through, so the gradient shows in it */
-.card.folder .label.themed::first-letter {
-  color: transparent;
-}
-
-/* a cut-off name's "…" in the gradient's last color */
-.card.folder .label.themed {
-  color: var(--theme-pink);
 }
 </style>

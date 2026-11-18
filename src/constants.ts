@@ -378,17 +378,16 @@ export const TRASH_LABEL = 'Move to trash'
 export const TRASH_CONFIRM =
   'Move "{name}" to the trash? You can restore it from the trash in your file manager.'
 /**
- * Folders inside any of these (at any depth) show their name in the theme
- * colors, like the ring around videos. Matched without leading dots and
- * ignoring case, so ".cinema" counts as "cinema". On/off: Settings → Look →
- * Colored folder names
+ * The folders directly inside any of these (.lock/.bin, .lock/x, .lock/.bin/x)
+ * are "top folders": they get their own spacing (Settings → Look → Space
+ * between top folders). Matched without leading dots and ignoring case
  */
-export const THEMED_NAME_PARENTS: readonly string[] = ['cinema', 'know', 'leaks', 'rand']
+export const TOP_FOLDER_PARENTS: readonly string[] = ['lock', 'bin']
 /**
  * The alphabet bar under the top bar only shows in the folders directly
  * inside these (.bin/cinema: yes; .bin itself and .bin/cinema/augustames: no),
- * when the page scrolls. Matched like THEMED_NAME_PARENTS: without leading
- * dots and ignoring case, so ".bin" counts as "bin"
+ * when the page scrolls. Matched without leading dots and ignoring case, so
+ * ".bin" counts as "bin"
  */
 export const ALPHABET_FOLDERS: readonly string[] = ['bin']
 /**
