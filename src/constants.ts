@@ -418,7 +418,7 @@ export const HEARTED_POOL = 40
 /** Every this many ms, a full "Hearted" section swaps one random card for one it doesn't show */
 export const HEARTED_SWAP_MS = 5000
 /** Title of that section */
-export const HEARTED_TITLE = 'Mos loved'
+export const HEARTED_TITLE = 'Most loved'
 /** Shown in that section while nothing in the folder is hearted */
 export const HEARTED_EMPTY_TEXT = 'No love shown here...yet'
 /**

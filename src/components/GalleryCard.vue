@@ -22,6 +22,7 @@ import type { Entry } from '@/types'
 import { isMediaEntry } from '@/utils/entry'
 import { hasPlayed } from '@/utils/firstPlays'
 import { formatDuration, formatQuality, formatSize } from '@/utils/format'
+import { haptic } from '@/utils/haptics'
 
 const props = defineProps<{
   entry: Entry
@@ -53,7 +54,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   open: [entry: Entry]
-  /** The heart was tapped: `on` is the state it should switch to */
+  /** The card was double-tapped: `on` is the hearted state it should switch to */
   favorite: [entry: Entry, on: boolean]
   /** A file was moved, deleted or uploaded, or a folder renamed: the folder should be reloaded */
   changed: []
@@ -87,10 +88,37 @@ function playsLabel(n: number): string {
   return n === 1 ? '1 view' : `${n} views`
 }
 
+// ── Tap: open; double tap: like ──
+// Photos and videos have no heart button: a double tap / double click on the
+// card hearts it (or un-hearts it), like double-tapping the lock timer
+// (LockTimer.vue). So a single tap opens only once no second one came.
+// Hearted ones show it by their colored badges. Folders, selection mode and
+// link-only cards open (or pick) at once, as before
+
+/** How long after a tap a second one still counts as a double tap (LockTimer.vue's) */
+const DOUBLE_TAP_MS = 400
+/** A first tap is waiting for a second one; it opens the card when it runs out */
+let tapTimer: ReturnType<typeof setTimeout> | undefined
+
 function onClick() {
   if (hold.consumeClick()) return // the press opened the menu
-  emit('open', props.entry)
+  if (!isMediaEntry(props.entry) || props.selecting || props.linkOnly) {
+    emit('open', props.entry)
+    return
+  }
+  if (tapTimer !== undefined) {
+    clearTimeout(tapTimer)
+    tapTimer = undefined
+    toggleFavorite()
+    return
+  }
+  tapTimer = setTimeout(() => {
+    tapTimer = undefined
+    emit('open', props.entry)
+  }, DOUBLE_TAP_MS)
 }
+
+onUnmounted(() => clearTimeout(tapTimer))
 
 const media = inject(MEDIA_STATUS_KEY)
 if (!media) throw new Error('GalleryCard needs useMediaStatus() provided by a parent')
@@ -145,17 +173,26 @@ const quality = computed(() =>
  */
 const folderPick = Math.floor(Math.random() * 1_000_000)
 
-/** Length of the heart's "like" burst (keep in sync with the .pop animations below) */
-const POP_MS = 800
-/** The heart was just tapped on: plays the burst (only then, not when the card appears hearted) */
+/** Length of the "like" burst over the preview (keep in sync with the animations below) */
+const POP_MS = 1200
+/** How many dots fly out of the burst */
+const LIKE_DOTS = 12
+/** Just hearted by a double tap: a big heart pops in the middle of the preview, with its burst */
 const popping = ref(false)
+/** Just un-hearted: the heart shows empty in the middle and fades away */
+const unliking = ref(false)
 let popTimer: ReturnType<typeof setTimeout> | undefined
 
 function toggleFavorite() {
   const on = !props.entry.favorite
   clearTimeout(popTimer)
   popping.value = on
-  if (on) popTimer = setTimeout(() => (popping.value = false), POP_MS)
+  unliking.value = !on
+  popTimer = setTimeout(() => {
+    popping.value = false
+    unliking.value = false
+  }, POP_MS)
+  haptic('tap')
   emit('favorite', props.entry, on)
 }
 
@@ -578,28 +615,28 @@ watch(
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
         {{ entry.plays ?? 0 }}
       </span>
+      <!-- double tap: a big heart in the middle (see the script) -->
+      <span
+        v-if="popping || unliking"
+        class="like-pop"
+        :class="{ on: popping, pop: popping, unlike: unliking }"
+        aria-hidden="true"
+      >
+        <span class="heart" />
+        <!-- "like" burst: a ring swells and empties, dots fly out, the heart pops in -->
+        <span v-if="popping" class="burst">
+          <span class="like-glow" />
+          <span class="ring" />
+          <span class="ring ring-late" />
+          <span
+            v-for="i in LIKE_DOTS"
+            :key="i"
+            class="dot"
+            :style="{ '--angle': `${(i * 360) / LIKE_DOTS}deg` }"
+          />
+        </span>
+      </span>
       <div v-if="!viewsOnly && !bare" class="video-badges">
-        <button
-          v-if="!linkOnly"
-          type="button"
-          class="fav-btn"
-          :class="{ on: entry.favorite, pop: popping }"
-          :aria-pressed="!!entry.favorite"
-          :title="entry.favorite ? 'Remove from favorites' : 'Add to favorites'"
-          @click.stop="toggleFavorite"
-        >
-          <span class="heart" aria-hidden="true" />
-          <!-- "like" burst: a ring swells and empties, dots fly out, the heart pops in -->
-          <span v-if="popping" class="burst" aria-hidden="true">
-            <span class="ring" />
-            <span
-              v-for="i in 7"
-              :key="i"
-              class="dot"
-              :style="{ '--angle': `${(i * 360) / 7}deg` }"
-            />
-          </span>
-        </button>
         <span v-if="entry.size" class="info-badge size-badge" :class="badgeGlass" title="File size">
           <!-- hard drive -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -685,31 +722,29 @@ watch(
       >
         {{ quality }}
       </span>
+      <!-- double tap: a big heart in the middle (see the script) -->
+      <span
+        v-if="popping || unliking"
+        class="like-pop"
+        :class="{ on: popping, pop: popping, unlike: unliking }"
+        aria-hidden="true"
+      >
+        <span class="heart" />
+        <span v-if="popping" class="burst">
+          <span class="like-glow" />
+          <span class="ring" />
+          <span class="ring ring-late" />
+          <span
+            v-for="i in LIKE_DOTS"
+            :key="i"
+            class="dot"
+            :style="{ '--angle': `${(i * 360) / LIKE_DOTS}deg` }"
+          />
+        </span>
+      </span>
       <div v-if="!viewsOnly && !bare" class="video-badges">
         <!-- bottom-left: the TS warning -->
         <span v-if="entry.needs_fix" class="ts-badge" :title="TS_BADGE_TITLE">TS</span>
-        <!-- heart, left of the duration and size (not on a link-only card) -->
-        <button
-          v-if="!linkOnly"
-          type="button"
-          class="fav-btn"
-          :class="{ on: entry.favorite, pop: popping }"
-          :aria-pressed="!!entry.favorite"
-          :title="entry.favorite ? 'Remove from favorites' : 'Add to favorites'"
-          @click.stop="toggleFavorite"
-        >
-          <span class="heart" aria-hidden="true" />
-          <!-- "like" burst: a ring swells and empties, dots fly out, the heart pops in -->
-          <span v-if="popping" class="burst" aria-hidden="true">
-            <span class="ring" />
-            <span
-              v-for="i in 7"
-              :key="i"
-              class="dot"
-              :style="{ '--angle': `${(i * 360) / 7}deg` }"
-            />
-          </span>
-        </button>
         <span
           v-if="entry.duration"
           class="info-badge duration-badge"
@@ -776,6 +811,8 @@ watch(
   border-radius: var(--card-radius);
   overflow: hidden;
   cursor: pointer;
+  /* a double tap hearts it (the script): no double-tap zoom of the page */
+  touch-action: manipulation;
   border: var(--card-border) solid var(--edge);
   transition:
     transform 0.15s,
@@ -1494,28 +1531,30 @@ watch(
   margin-left: auto;
 }
 
-/* ── Favorite heart ── */
-/* A heart-shaped badge, no box around it: as tall as the duration / size
-   badges. Pushed right with them; the duration then sits right after it */
-.fav-btn {
-  position: relative; /* anchors the burst */
+/* a photo's size: at the right end of its badge row (a video's duration
+   already is, .duration-badge) */
+.video-badges > .size-badge:first-child {
   margin-left: auto;
-  display: inline-flex;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-  /* no filter (e.g. a drop shadow) here: it would stop the heart's glass
-     from seeing, and blurring, the video behind it */
-  /* the badge row ignores the pointer; the heart doesn't */
-  pointer-events: auto;
-  transition:
-    opacity 0.15s,
-    transform 0.15s;
 }
 
-.fav-btn + .duration-badge {
-  margin-left: 0;
+/* ── Double-tap heart ──
+   Hearting a photo / video is a double tap on its card (the script): a big
+   heart pops in the middle of the preview with its burst, then goes; an
+   un-heart shows it empty, fading. Hearted cards show it by their colored
+   badges, there's no heart on them. The heart below is the badges' size,
+   scaled up (the burst's sizes follow). Above the preview and its badges,
+   and it doesn't take the pointer */
+.like-pop {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  width: 1.35rem;
+  height: 1.35rem;
+  transform: translate(-50%, -50%) scale(3.6);
+  pointer-events: none;
+  /* no filter (e.g. a drop shadow) here: it would stop the heart's glass
+     from seeing, and blurring, the video behind it */
 }
 
 /* the heart shape cut out of its background (ICON_HEART in icons.ts), so it
@@ -1558,7 +1597,7 @@ watch(
 /* hearted: glass tinted red. The red is see-through enough for the blurred
    video to show in it, under a stronger sheen, with the same rim, a little
    brighter so it reads on the color */
-.fav-btn.on .heart {
+.like-pop.on .heart {
   --heart-sheen: linear-gradient(
     145deg,
     rgba(255, 255, 255, calc(0.4 * var(--glass-opacity) * var(--badge-glass-ratio))),
@@ -1569,13 +1608,13 @@ watch(
   backdrop-filter: blur(10px) saturate(180%);
 }
 
-.fav-btn.on .heart::after {
+.like-pop.on .heart::after {
   background: var(--edge-strong);
 }
 
 /* hearted, on a card with colored badges: the heart wears the same colored
    glass as them (--theme-glass, tokens.css) instead of red */
-.card.colored-badges .fav-btn.on .heart {
+.card.colored-badges .like-pop.on .heart {
   /* no white sheen (it made the heart lighter than the badges), and the
      badges' own blur and rim */
   background: var(--theme-glass);
@@ -1583,25 +1622,79 @@ watch(
   backdrop-filter: blur(16px) saturate(150%);
 }
 
-.card.colored-badges .fav-btn.on .heart::after {
+.card.colored-badges .like-pop.on .heart::after {
   background: var(--edge);
 }
 
-:global(html.no-glass) .card.colored-badges .fav-btn.on .heart {
+:global(html.no-glass) .card.colored-badges .like-pop.on .heart {
   background: var(--theme-glass), rgba(14, 13, 22, 0.85);
 }
 
 /* "Glass effect" off: nothing blurred shows through, so a see-through red
    would just look faded: solid red under the sheen instead */
-:global(html.no-glass) .fav-btn.on .heart {
+:global(html.no-glass) .like-pop.on .heart {
   background: var(--heart-sheen), #ff3347;
 }
 
+/* the big heart has no rim: just the glass in its shape */
+.like-pop .heart::after {
+  display: none;
+}
+
 /* ── "Like" burst (POP_MS long in the script) ──
-   Like X's: the heart vanishes, a ring swells from the middle and empties
-   out, dots fly off around it, then the heart pops back in, slightly too big */
-.fav-btn.pop .heart {
-  animation: heart-pop 0.8s cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+   A glow flares behind it, two rings swell from the middle one after the
+   other and empty out, a ring of dots flies off, the heart slams in too big
+   with a little wobble, settles, and fades out at the end */
+.like-pop.pop .heart {
+  animation: heart-pop 1.2s cubic-bezier(0.17, 0.89, 0.32, 1.28) both;
+}
+
+/* un-hearted: the empty heart shrinks a little and fades */
+.like-pop.unlike .heart {
+  animation: heart-fade 0.8s ease-out both;
+}
+
+/* a soft pink-to-purple glow flaring behind the heart (a separate layer: a
+   filter on the heart itself would cut off its glass) */
+.like-glow {
+  position: absolute;
+  inset: -60%;
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    rgba(255, 126, 182, 0.85),
+    rgba(180, 140, 255, 0.45) 55%,
+    transparent
+  );
+  filter: blur(4px);
+  animation: like-glow 1.2s ease-out both;
+}
+
+@keyframes like-glow {
+  0%,
+  15% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@keyframes heart-fade {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
 }
 
 .burst {
@@ -1616,39 +1709,58 @@ watch(
   box-sizing: border-box;
   border-radius: 50%;
   border: 0.675rem solid #b48cff;
-  animation: ring-swell 0.4s ease-out both;
+  animation: ring-swell 0.5s ease-out both;
+}
+
+/* the second ring: a beat later, swelling further, cyan */
+.ring-late {
+  border-color: #9fd8ff;
+  animation: ring-swell-late 0.6s ease-out 0.15s both;
 }
 
 .dot {
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 0.22rem;
-  height: 0.22rem;
-  margin: -0.11rem 0 0 -0.11rem;
+  width: 0.26rem;
+  height: 0.26rem;
+  margin: -0.13rem 0 0 -0.13rem;
   border-radius: 50%;
   background: #ff7eb6;
   transform: rotate(var(--angle)) translateY(0) scale(1);
-  animation: dot-fly 0.55s ease-out 0.22s both;
+  animation: dot-fly 0.7s cubic-bezier(0.2, 0.7, 0.3, 1) 0.22s both;
 }
 
+/* every other dot: smaller, blue, and flying a little further */
 .dot:nth-child(odd) {
   background: #9fd8ff;
+  --dot-scale: 0.7;
+  --dot-reach: -2.1rem;
 }
 
 @keyframes heart-pop {
   0%,
-  28% {
-    transform: scale(0);
+  22% {
+    opacity: 1;
+    transform: scale(0) rotate(0);
   }
-  60% {
-    transform: scale(1.25);
+  42% {
+    transform: scale(1.45) rotate(-8deg);
   }
-  80% {
-    transform: scale(0.94);
+  54% {
+    transform: scale(0.88) rotate(5deg);
+  }
+  64% {
+    transform: scale(1.08) rotate(-2deg);
+  }
+  74%,
+  85% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
   }
   100% {
-    transform: scale(1);
+    opacity: 0;
+    transform: scale(1.15);
   }
 }
 
@@ -1659,56 +1771,59 @@ watch(
     border-width: 0.675rem;
   }
   55% {
-    transform: scale(1.1);
+    transform: scale(1.2);
     border-color: #ff7eb6;
     border-width: 0.675rem;
   }
   100% {
-    transform: scale(1.35);
+    transform: scale(1.6);
     border-color: #ff7eb6;
     border-width: 0;
+  }
+}
+
+@keyframes ring-swell-late {
+  0% {
+    transform: scale(0.4);
+    border-width: 0.4rem;
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(2.2);
+    border-width: 0;
+    opacity: 0;
   }
 }
 
 @keyframes dot-fly {
   0% {
     opacity: 0;
-    transform: rotate(var(--angle)) translateY(-0.5rem) scale(1.2);
+    transform: rotate(var(--angle)) translateY(-0.5rem) scale(calc(1.4 * var(--dot-scale, 1)));
   }
   15% {
     opacity: 1;
   }
   100% {
     opacity: 0;
-    transform: rotate(var(--angle)) translateY(-1.35rem) scale(0.2);
+    transform: rotate(var(--angle)) translateY(var(--dot-reach, -1.75rem)) scale(0.2);
   }
 }
 
+/* reduced motion: the heart just fades in and out where it is, no burst */
 @media (prefers-reduced-motion: reduce) {
-  .fav-btn.pop .heart,
+  .like-pop.pop .heart,
+  .like-pop.unlike .heart {
+    animation: card-glow 0.8s ease-in-out both;
+  }
+
   .ring,
-  .dot {
+  .dot,
+  .like-glow {
     animation: none;
   }
 
   .burst {
     display: none;
-  }
-}
-
-.fav-btn:hover {
-  transform: scale(1.12);
-}
-
-/* an empty heart only shows on the pointed card; touch screens always show it */
-@media (hover: hover) {
-  .fav-btn:not(.on) {
-    opacity: 0;
-  }
-
-  .card:hover .fav-btn,
-  .fav-btn:focus-visible {
-    opacity: 1;
   }
 }
 
