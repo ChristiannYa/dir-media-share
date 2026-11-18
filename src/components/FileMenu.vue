@@ -7,6 +7,7 @@ import RenameDialog from '@/components/RenameDialog.vue'
 import { fileUrl, fixTs, queueCompress, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
+import { popupsGone } from '@/composables/usePopupOpen'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
   COMPRESS_LABEL,
@@ -29,6 +30,7 @@ import {
 } from '@/icons'
 import type { Entry, MenuDetail, MenuItem } from '@/types'
 import { downloadFile } from '@/utils/download'
+import { puffAway } from '@/utils/puff'
 import { isCompressible, isEditable } from '@/utils/entry'
 import { minuteClock } from '@/utils/clock'
 import { formatAgo, formatLongDate, formatSize } from '@/utils/format'
@@ -188,8 +190,13 @@ const trashItem: MenuItem = {
   row: 'move-trash',
   confirm: { message: TRASH_CONFIRM.replace('{name}', props.entry.name) },
   async run() {
-    await trashFile(props.entry.path)
-    emit('changed')
+    const path = props.entry.path
+    await trashFile(path)
+    // the menu closes first (null), then the card goes up in a puff where it
+    // was (utils/puff.ts), and only then the folder lists again without it
+    void popupsGone()
+      .then(() => puffAway([path]))
+      .finally(() => emit('changed'))
     return null
   },
 }

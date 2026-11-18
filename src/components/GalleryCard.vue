@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import FileMenu from '@/components/FileMenu.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LoadingDots from '@/components/LoadingDots.vue'
 import PreviewVideo from '@/components/PreviewVideo.vue'
+import StackBadge from '@/components/StackBadge.vue'
 import {
   fileUrl,
   folderPreviewUrl,
@@ -14,6 +15,11 @@ import {
 } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { TOP_FOLDER_PARENTS, TS_BADGE_TITLE } from '@/constants'
+import {
+  BADGE_STACK_STATE_KEY,
+  BADGE_TARGETS_KEY,
+  createBadgeStackState,
+} from '@/composables/useBadgeStack'
 import { ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
@@ -95,6 +101,22 @@ const showCompressedBanner = computed(
     !props.viewsOnly &&
     !props.bare,
 )
+
+// ── Badge stack ──
+// The badges and pills at the top-left corner (the status pill, "Whole video",
+// "Compressed!", the views) are stacked in one column, ordered by priority
+// (BADGES in constants.ts): the highest on top, and when one goes away the
+// ones under it slide up (StackBadge.vue). The element is in each of the
+// card's media boxes (below); PreviewVideo's pills are put in it too.
+// While a temporal one (a status, a new copy) is visible, the top-right
+// badges (the quality: .corner-badge) are hidden and the stack may use the
+// card's whole width (.stack-busy), so nothing is cut off by them
+const stackEl = ref<HTMLElement | null>(null)
+/** The row at the bottom of the stack: the metadata badges, side by side */
+const rowEl = ref<HTMLElement | null>(null)
+const stackState = createBadgeStackState()
+provide(BADGE_TARGETS_KEY, { stack: stackEl, row: rowEl })
+provide(BADGE_STACK_STATE_KEY, stackState)
 
 /** "1 view", "12 views" */
 function playsLabel(n: number): string {
@@ -456,7 +478,7 @@ watch(
         selected,
         'link-only': linkOnly,
         'views-only': viewsOnly,
-        'compressed-new': showCompressedBanner,
+        'stack-busy': stackState.temporal > 0,
       },
     ]"
     v-on="hold.listeners"
@@ -517,6 +539,8 @@ watch(
         @playing="onOwnPreviewPlaying"
         @error="onPreviewFailed"
       />
+      <!-- top-left: the preview's status pill (put here by PreviewVideo) -->
+      <div ref="stackEl" class="badge-stack"><div ref="rowEl" class="badge-row" /></div>
       <!-- its preview hasn't played yet: the still shows blurred, low
            quality, until the sweep below takes over and reveals the preview
            (thumbVeiled). Blurred even with Glass effect off (.force-glass) -->
@@ -608,7 +632,13 @@ watch(
         @load="onImageLoad"
         @error="onMediaError(trackKey)"
       />
-      <span v-if="showCompressedBanner" class="compressed-banner">Compressed!</span>
+      <!-- top-left: a compressed copy not opened yet -->
+      <div ref="stackEl" class="badge-stack">
+        <StackBadge badge="compressed" :show="showCompressedBanner">
+          <span class="info-badge compressed-badge">Compressed!</span>
+        </StackBadge>
+        <div ref="rowEl" class="badge-row" />
+      </div>
       <!-- the app led you here: the loaded sweep, once (see the script) -->
       <div
         v-if="sweepStyle"
@@ -715,16 +745,41 @@ watch(
              lasts the sweep -->
         <span class="sweep-frost force-glass" />
       </div>
-      <!-- a compressed copy not opened yet: a band across the top -->
-      <span v-if="showCompressedBanner" class="compressed-banner">Compressed!</span>
-      <!-- top-left: how many times it was played (not in selection mode: the check is
-           there); viewsOnly: bottom-right, where the folder cards have theirs.
-           Pops in / out when the app mode (or selection mode) switches -->
+      <!-- top-left, stacked by priority (BADGES): the preview's status pill
+           (put here by PreviewVideo), then "Compressed!" for a copy not opened
+           yet, then a row of the metadata: how many times it was played (not
+           in selection mode: the check is there) and the icon PreviewVideo
+           adds when its preview is the whole video. Each slides away when it
+           goes, and the ones under / after it slide up / along. Switching the
+           app mode opens / closes the views. StackBadge puts each in the column
+           or the row by its kind, wherever it's written -->
+      <div ref="stackEl" class="badge-stack">
+        <StackBadge badge="compressed" :show="showCompressedBanner">
+          <span class="info-badge compressed-badge">Compressed!</span>
+        </StackBadge>
+        <div ref="rowEl" class="badge-row" />
+        <StackBadge
+          v-if="!viewsOnly"
+          badge="plays"
+          :show="!selecting && recordsVideoData && !bare"
+        >
+          <span
+            class="info-badge plays-badge"
+            :class="badgeGlass"
+            :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+            {{ entry.plays ?? 0 }}
+          </span>
+        </StackBadge>
+      </div>
+      <!-- viewsOnly (the "Most played" section): just the views, bottom-right,
+           where the folder cards have theirs. Pops in / out like the app mode switches -->
       <Transition name="mode-badge">
         <span
-          v-if="!selecting && recordsVideoData && !bare"
-          class="info-badge plays-badge"
-          :class="[badgeGlass, { 'views-only': viewsOnly }]"
+          v-if="viewsOnly && !selecting && recordsVideoData && !bare"
+          class="info-badge plays-badge views-only"
+          :class="badgeGlass"
           :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
@@ -734,7 +789,7 @@ watch(
       <!-- top-right: the quality -->
       <span
         v-if="quality && !viewsOnly && !bare"
-        class="info-badge quality-badge"
+        class="info-badge quality-badge corner-badge"
         :class="badgeGlass"
       >
         {{ quality }}
@@ -1457,83 +1512,106 @@ watch(
   fill: currentColor;
 }
 
-/* ── "Compressed!" ──
-   A compressed copy not opened yet: a band across the top of the preview,
-   rounded with it (the media box clips it). Under the selection check, which
-   moves down below it with the top badges */
-.compressed-banner {
+/* ── The top-left stack ── */
+/* The badges and pills of the card's top-left corner, one under the other
+   (StackBadge.vue orders them by BADGES' priority and opens / closes each).
+   Stays clear of the quality badge (top-right) on narrow cards, unless that
+   one is hidden: while a temporal badge is visible (.stack-busy), the stack
+   uses the whole width. Above the card's dark placeholder (z-index 1, which it
+   follows in the page), under the selection tint and check */
+.badge-stack {
   position: absolute;
-  z-index: 2;
-  top: 0;
-  left: 0;
-  right: 0;
-  /* the top badges and the selection check move down by this much (below) */
-  height: 1.3rem;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(
-    90deg,
-    rgba(32, 140, 110, 0.94),
-    rgba(63, 174, 98, 0.94) 50%,
-    rgba(32, 140, 110, 0.94)
-  );
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
-  color: #fff;
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  z-index: 1;
+  top: var(--badge-inset);
+  left: var(--badge-inset);
+  max-width: calc(50% - var(--badge-inset));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   pointer-events: none;
-  animation: banner-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-@keyframes banner-in {
-  from {
-    transform: translateY(-100%);
-  }
+/* the metadata badges (the views, "Whole video"), side by side at the bottom of
+   the column. Sits after every slot of the column (their `order` is negative);
+   the badges in it are ordered by priority too, and shrink to no width when
+   closed (StackBadge.vue), so the row is 0 tall with none open */
+.badge-row {
+  order: 0;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  max-width: 100%;
 }
 
-.card.compressed-new .plays-badge:not(.views-only),
-.card.compressed-new .quality-badge {
-  top: calc(var(--badge-inset) + 1.3rem);
+/* every badge and pill of the stack shows its whole text: wrapped onto more
+   lines when it doesn't fit the width, never cut with an ellipsis */
+.badge-stack .info-badge {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
-.card.compressed-new .check {
-  top: calc(0.45rem + 1.3rem);
+/* a photo has no quality badge at its top-right, and a card showing a temporal
+   badge has hidden it: the stack may be as wide as the card */
+.media-wrap:not(.video-wrap) .badge-stack,
+.card.stack-busy .badge-stack {
+  max-width: calc(100% - 2 * var(--badge-inset));
+}
+
+/* The badges of the top-right corner (the quality; any new one gets this
+   class): hidden while a temporal badge of the stack is visible, so the stack
+   has the room. Back once the last one has gone (after the stack has closed,
+   hence the delay) */
+.corner-badge {
+  transition:
+    opacity 0.25s ease 0.3s,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) 0.3s;
+}
+
+.card.stack-busy .corner-badge {
+  opacity: 0;
+  transform: translateX(0.6rem);
+  transition-delay: 0s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .compressed-banner {
-    animation: none;
+  .corner-badge {
+    transition: none;
   }
 }
 
-/* how many times it was played, top-left (the quality is top-right) */
-.plays-badge {
-  position: absolute;
-  top: var(--badge-inset);
-  left: var(--badge-inset);
+/* the views and the other badges of the stack are inline, not positioned */
+.badge-stack .plays-badge {
   font-variant-numeric: tabular-nums;
-  pointer-events: none;
 }
 
-/* the "Most played" section: nothing else on the preview, so bottom-right,
-   like the views of the folder cards there */
+/* ── "Compressed!" ──
+   A compressed copy not opened yet: a badge like the others on the preview
+   (same size, corners, glass blur and rim), tinted with the purple of the top
+   bar's compress indicator (CompressButton.vue's count bubble, #8a5cf6) over
+   the dark badge glass. In the top-left stack, under the status pill */
+.compressed-badge {
+  background:
+    linear-gradient(145deg, rgba(138, 92, 246, 0.72), rgba(138, 92, 246, 0.5)),
+    rgba(5, 4, 10, var(--badge-darkness));
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+  border: 1px solid var(--edge);
+  box-shadow: var(--edge-shine);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* the "Most played" section: just the views, nothing else on the preview, so
+   bottom-right, like the views of the folder cards there (elsewhere they're in
+   the top-left stack, above) */
 .plays-badge.views-only {
-  top: auto;
-  left: auto;
+  position: absolute;
   bottom: var(--badge-inset);
   right: var(--badge-inset);
-}
-
-/* switching the app mode: the views badge pops in from (or shrinks into) its
-   corner */
-.plays-badge {
-  transform-origin: top left;
-}
-
-.plays-badge.views-only {
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  /* switching the app mode: it pops in from (or shrinks into) its corner */
   transform-origin: bottom right;
 }
 

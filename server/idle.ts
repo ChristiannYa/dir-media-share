@@ -38,6 +38,8 @@ interface IdleState {
   stopping: boolean
   /** Background work by name → true while it's busy (keepAwake) */
   keepers: Map<string, () => boolean>
+  /** The latest loaded version's check: the timer calls it, so a reload's fixes apply at once */
+  check: () => void
 }
 
 const KEY = Symbol.for('med.idleShutdown')
@@ -50,6 +52,7 @@ const state: IdleState = (store[KEY] ??= {
   stop: async () => {},
   stopping: false,
   keepers: new Map(),
+  check: () => {},
 })
 // a state made by an older version of this file has none yet
 state.keepers ??= new Map()
@@ -80,12 +83,13 @@ function check() {
   state.stopping = true
   void state.stop(`no activity for ${minutes} min`)
 }
+state.check = check
 
 /** Starts the idle check (once per process; loading this file again keeps the running one) */
 export function startIdleShutdown() {
   if (state.timer) return
   state.lastActivity = Date.now()
-  state.timer = setInterval(check, IDLE_CHECK_MS)
+  state.timer = setInterval(() => state.check(), IDLE_CHECK_MS)
   state.timer.unref() // never what keeps the process alive
 }
 

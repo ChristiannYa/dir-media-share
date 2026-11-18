@@ -357,6 +357,38 @@ export const UPLOAD_ACCEPT = 'image/*,video/*,.heic,.mkv,.mp3'
 export const UPLOAD_CONCURRENCY = 3
 /** File menu item and selection bar button that save compressed copies of videos and photos */
 export const COMPRESS_LABEL = 'Compress'
+
+/**
+ * What a badge is, for the stack at a card's top-left corner (StackBadge.vue):
+ * - `temporal`: comes and goes with what's happening to the file (a status, a
+ *   new copy). While any is visible the card hides the top-right badges (the
+ *   video's quality…, the `.corner-badge` ones in GalleryCard.vue) and the
+ *   stack may use the card's whole width, so nothing gets cut off.
+ * - `metadata`: facts about the file, there while it's shown (the views,
+ *   "Whole video"). They sit side by side in one row at the bottom of the
+ *   stack, in priority order from the left, and are fine beside the top-right
+ *   badges.
+ */
+export type BadgeKind = 'temporal' | 'metadata'
+
+/**
+ * The badges and pills stacked at a card's top-left corner (StackBadge.vue):
+ * the higher the priority, the higher in the stack. When one goes away, the
+ * ones under it slide up into its place. Add a new badge here with a
+ * priority between the ones it should sit among, and its kind.
+ */
+export const BADGES = {
+  /** The preview's pill: "Asking server", "Encoding 40%", "From browser cache"… */
+  status: { priority: 40, kind: 'temporal' },
+  /** "Compressed!": a compressed copy not opened yet */
+  compressed: { priority: 20, kind: 'temporal' },
+  /** How many times a video was played (goon mode): first in the row */
+  plays: { priority: 10, kind: 'metadata' },
+  /** An icon: the preview clip is the whole video, not slices; after the views in the row */
+  whole: { priority: 5, kind: 'metadata' },
+} as const satisfies Record<string, { priority: number; kind: BadgeKind }>
+
+export type BadgeName = keyof typeof BADGES
 /**
  * Video extensions the server can compress (server/media/compress.ts); other
  * videos (e.g. .mp3) don't get the option

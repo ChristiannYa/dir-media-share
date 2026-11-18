@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, inject, ref } from 'vue'
+import { computed, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { cancelCompress, clearCompressJobs, discardCompressJob } from '@/api'
 import { compressPercent, useCompressQueue } from '@/composables/useCompressQueue'
-import { REVEAL_ENTRY_KEY } from '@/composables/useGallery'
+import { revealInGallery } from '@/composables/useGallery'
 import type { CompressJob, CompressJobState } from '@/types'
 import { formatSize } from '@/utils/format'
+import { haptic } from '@/utils/haptics'
 
 /**
  * How the server's compress queue is going (useCompressQueue), opened from
@@ -24,18 +25,16 @@ const emit = defineEmits<{ close: [] }>()
 
 const { list, byFolder, activeCount, current, remainingWeight, isActive } = useCompressQueue()
 
-/** Opens a file's folder and scrolls to its card (App.vue) */
-const revealEntry = inject(REVEAL_ENTRY_KEY, null)
-
 /**
- * A tap on a file goes to its card: the saved copy once there is one, else
- * the original. The popup closes so the card shows
+ * A tap on a file's row closes the popup and goes to its card in the gallery
+ * (App.vue: its folder opens first, then the card is scrolled to the middle
+ * and flashes): the saved copy once there is one, else the original
  */
 function goTo(job: CompressJob) {
-  if (!revealEntry) return
+  haptic('tap')
   const target = job.state === 'done' && job.copyPath ? job.copyPath : job.path
   emit('close')
-  void revealEntry(target, true)
+  void revealInGallery(target)
 }
 
 /** Requests on their way, by job id / folder / 'all', so their buttons wait */
@@ -239,7 +238,19 @@ function progressText(job: CompressJob): string {
           </div>
 
           <ul class="files">
-            <li v-for="job in group.jobs" :key="job.id" class="file" :class="job.state">
+            <!-- the whole row leads to the file's card (its buttons don't) -->
+            <li
+              v-for="job in group.jobs"
+              :key="job.id"
+              class="file"
+              :class="job.state"
+              role="button"
+              tabindex="0"
+              :title="`Show ${job.state === 'done' && job.copyName ? job.copyName : job.name} in the gallery`"
+              @click="goTo(job)"
+              @keydown.enter.self="goTo(job)"
+              @keydown.space.self.prevent="goTo(job)"
+            >
               <div class="file-row">
                 <span class="file-state" :title="job.state">
                   <template v-if="job.state === 'done'">✓</template>
@@ -250,14 +261,7 @@ function progressText(job: CompressJob): string {
                   <span v-else-if="job.state === 'compressing'" class="spinner" />
                   <template v-else>•</template>
                 </span>
-                <button
-                  type="button"
-                  class="file-name file-link"
-                  :title="`Show ${job.name} in its folder`"
-                  @click="goTo(job)"
-                >
-                  {{ job.name }}
-                </button>
+                <span class="file-name">{{ job.name }}</span>
                 <span class="file-size">
                   <template v-if="isActive(job)">{{ progressText(job) }}</template>
                   <template v-else-if="job.state === 'done'">
@@ -273,7 +277,7 @@ function progressText(job: CompressJob): string {
                   :disabled="busy.has(job.id)"
                   aria-label="Stop"
                   title="Stop this one"
-                  @click="stopJob(job)"
+                  @click.stop="stopJob(job)"
                 >
                   ✕
                 </button>
@@ -283,7 +287,7 @@ function progressText(job: CompressJob): string {
                   class="link-button danger"
                   :disabled="busy.has(job.id)"
                   title="Delete the copy for good; the original stays"
-                  @click="discardJob(job)"
+                  @click.stop="discardJob(job)"
                 >
                   Discard
                 </button>
@@ -518,10 +522,33 @@ function progressText(job: CompressJob): string {
   list-style: none;
 }
 
+/* a row is tapped to go to the file's card */
 .file {
   padding: 0.5rem 0.6rem;
   border-radius: 0.55rem;
   background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.1s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.file:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.file:hover .file-name {
+  color: #fff;
+}
+
+.file:active {
+  transform: scale(0.985);
+}
+
+.file:focus-visible {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 1px;
 }
 
 .file-row {
@@ -567,21 +594,6 @@ function progressText(job: CompressJob): string {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #ddd;
-}
-
-/* the name is a button that leads to the file's card */
-.file-link {
-  padding: 0;
-  border: none;
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.file-link:hover {
-  color: #fff;
-  text-decoration: underline;
 }
 
 .file-size {

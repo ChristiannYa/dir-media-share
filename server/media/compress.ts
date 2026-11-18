@@ -284,8 +284,10 @@ export function rememberCopy(file: string) {
  * Deletes a copy saved by a compression in the last COMPRESS_DISCARD_WINDOW_MS,
  * for good, with its cached still / preview / storyboard. False for any other file.
  */
-export async function discardCompressed(file: string): Promise<boolean> {
-  const at = copies.get(file)
+export async function discardCompressed(file: string, savedAt?: number): Promise<boolean> {
+  // when it was saved: remembered since the server started, or (`savedAt`)
+  // vouched for by the compress queue's saved list, which outlives a restart
+  const at = copies.get(file) ?? savedAt
   if (at === undefined || Date.now() - at > COMPRESS_DISCARD_WINDOW_MS) return false
   // the cache names are worked out from the file, so do this while it's still there
   // (photos have no still, preview or storyboard)

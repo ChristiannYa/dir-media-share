@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import StackBadge from '@/components/StackBadge.vue'
 import { cancelPreviewJob, fetchPreviewInfo } from '@/api'
 import { settings } from '@/settings'
 import { isFirstPlay } from '@/utils/firstPlays'
@@ -187,18 +188,19 @@ function onPlaying() {
   if (isFirstPlay(`${props.kind}:${props.path}`)) previewHaptic()
   emit('playing')
   lingerTimer = setTimeout(() => (showStatus.value = false), settings.previewStatusLingerMs)
-  // TEMPORARY (debugging the short-video previews): the clip is the whole video
-  if (wholeClip.value) showWholeTag.value = true
 }
 
-// ── TEMPORARY: "Whole video" tag ──
-// Floats up over the card and fades when its clip is the whole video instead
-// of slices (server/media/preview.ts, isWholeVideo). Remove once checked
+// ── "Whole video" badge ──
+// An icon-only badge, beside the views in the card's top-left stack (a
+// metadata badge: it stays while the card is shown), when the preview clip is
+// the whole video instead of slices (server/media/preview.ts, isWholeVideo)
 
 /** The server says the clip is the whole video (measured on the clip) */
 const wholeClip = ref(false)
-/** The tag is floating (once, when the preview starts playing) */
-const showWholeTag = ref(false)
+
+/** 24×24 icon path (Material "movie": a film strip) */
+const WHOLE_ICON =
+  'M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H5L3 4H2v14c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z'
 
 function onVideoError() {
   phase.value = 'failed'
@@ -285,23 +287,31 @@ const status = computed<{ icon: Icon; text: string; busy: boolean }>(() => {
       @playing="onPlaying"
       @error="onVideoError"
     />
-    <div
-      v-if="settings.showPreviewStatus && !bare"
-      class="status badge-glass"
-      :class="{ busy: status.busy, failed: phase === 'failed', hidden: !showStatus }"
-      :title="status.text"
-    >
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICONS[status.icon]" /></svg>
-      <span>{{ status.text }}</span>
-    </div>
-    <!-- TEMPORARY: the clip is the whole video, not slices -->
-    <div
-      v-if="showWholeTag && !bare"
-      class="whole-tag badge-glass"
-      @animationend="showWholeTag = false"
-    >
-      Whole video
-    </div>
+    <!-- the pill and the badge are in the card's top-left stack (StackBadge.vue,
+         BADGES in constants.ts: it puts each where its kind goes, whatever
+         component draws it): the status pill above the card's own badges, and
+         when it goes away the ones under it slide up. The "whole video" icon
+         is in the row of the views -->
+    <StackBadge badge="status" :show="settings.showPreviewStatus && !bare && showStatus">
+      <div
+        class="status badge-glass"
+        :class="{ busy: status.busy, failed: phase === 'failed' }"
+        :title="status.text"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICONS[status.icon]" /></svg>
+        <span>{{ status.text }}</span>
+      </div>
+    </StackBadge>
+    <StackBadge badge="whole" :show="wholeClip && phase !== 'failed' && !bare">
+      <div
+        class="whole-badge badge-glass"
+        title="Whole video: the preview plays all of it, not slices"
+        role="img"
+        aria-label="Whole video"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="WHOLE_ICON" /></svg>
+      </div>
+    </StackBadge>
   </div>
 </template>
 
@@ -327,28 +337,23 @@ video.ready {
 }
 
 /* ── Status pill ── */
+/* in the card's top-left stack (StackBadge.vue), which keeps it clear of the
+   quality badge on narrow cards (its max-width) and places it by priority.
+   The whole text shows: when it doesn't fit the width, it wraps onto more lines */
 .status {
-  position: absolute;
-  /* above the card's dark placeholder, which covers everything until the still loads */
-  z-index: 1;
-  /* top-left corner, across from the quality badge (top-right, GalleryCard.vue),
-     same inset (tokens.css) */
-  top: var(--badge-inset);
-  left: var(--badge-inset);
-  /* stays clear of the quality badge on narrow cards */
-  max-width: calc(50% - var(--badge-inset));
+  max-width: 100%;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
   /* the glass rim (.badge-glass, tokens.css: like the cards' info badges) is inside the old size */
   padding: calc(0.15rem - 1px) calc(0.45rem - 1px);
-  border-radius: 999px;
+  /* round on one line, a rounded rectangle on more */
+  border-radius: 0.75rem;
   color: #ddd;
   font-size: 0.65rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: opacity 0.4s;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .status svg {
@@ -356,11 +361,6 @@ video.ready {
   width: 0.8rem;
   height: 0.8rem;
   fill: currentColor;
-}
-
-.status span {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* still working: the icon pulses */
@@ -372,63 +372,24 @@ video.ready {
   color: #ff6b5b;
 }
 
-.status.hidden {
-  opacity: 0;
-}
-
-/* ── TEMPORARY: "Whole video" tag ── */
-/* centered over the card: pops in, holds, then floats up and fades (~3s) */
-.whole-tag {
-  position: absolute;
-  z-index: 2;
-  top: 50%;
-  left: 50%;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
+/* ── "Whole video" badge ── */
+/* just an icon, the same as the card's info badges (GalleryCard.vue's
+   .info-badge: size, corners, glass), so it lines up with the views beside
+   it. Its height is that of a line of their text (1lh) */
+.whole-badge {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: calc(0.2rem - 1px) calc(0.45rem - 1px);
+  border-radius: 4px;
   color: #fff;
-  font-size: 0.75rem;
-  font-weight: 700;
-  white-space: nowrap;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
-  animation: whole-tag-float 3s ease-out forwards;
+  font-size: 0.7rem;
 }
 
-@keyframes whole-tag-float {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -30%) scale(0.85);
-  }
-  12% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
-  }
-  70% {
-    opacity: 1;
-    transform: translate(-50%, -60%);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -140%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .whole-tag {
-    animation-name: whole-tag-fade;
-  }
-}
-
-@keyframes whole-tag-fade {
-  0%,
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -50%);
-  }
-  15%,
-  75% {
-    opacity: 1;
-    transform: translate(-50%, -50%);
-  }
+.whole-badge svg {
+  width: 0.8rem;
+  height: 1lh;
+  fill: currentColor;
 }
 
 @keyframes pulse {

@@ -73,6 +73,12 @@ export const FAVORITES_FILE = path.join(DATA_DIR, 'favorites.json')
  */
 export const COMPRESSED_NEW_FILE = path.join(DATA_DIR, 'compressed-new.json')
 /**
+ * The compress queue (server/compressQueue.ts): every job, waiting, running or
+ * ended, so the list (and the top bar's compress button) survives a restart,
+ * and the jobs that hadn't ended start again then.
+ */
+export const COMPRESS_QUEUE_FILE = path.join(DATA_DIR, 'compress-queue.json')
+/**
  * When each video, and each folder holding it, was last played in the viewer
  * (server/views.ts): path → ms since 1970. Shared by every device.
  */

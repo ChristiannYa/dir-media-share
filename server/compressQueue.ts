@@ -1,13 +1,20 @@
 // The compress queue: videos and photos waiting to be compressed, compressed
 // in the background by the server (./media/compress.ts, ./media/compressImage.ts)
 // whatever the browser does meanwhile: other folders, a reload, the phone
-// going to sleep, another device. Videos go one after another (each encode
-// already keeps every core busy), photos on their own line beside them.
+// going to sleep, another device. Videos go one after another, photos on
+// their own line beside them.
 //
 // Every open page hears each change on the job events stream
 // (`event: compress`, server/handlers/jobEvents.ts) and can ask for the whole
 // list (GET ROUTE_COMPRESS_JOBS). Ended jobs stay listed, with their outcome,
 // until they're cleared.
+//
+// Saved in COMPRESS_QUEUE_FILE on every change of state (not on progress), so
+// a restart loses nothing: the list, ended jobs included, is there again, and
+// the jobs that hadn't ended (the server stopped: shut down by hand, idle,
+// crashed, the laptop's power) start again by themselves, in the same order.
+// One that was compressing starts over from the beginning (an encode can't be
+// picked up halfway); the half-written file it left is deleted.
 //
 // While anything is waiting or compressing, the idle shutdown is held off
 // (./idle.ts keepAwake): the idle time is pushed back before it can run out,
@@ -20,14 +27,18 @@
 // (server/vitePlugin.ts), and the running jobs must stay in the same list.
 
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { markCompressedNew, setCompressedSeen } from './compressedNew.ts'
+import { COMPRESS_QUEUE_FILE } from './consts/server.ts'
 import { keepAwake, touchActivity } from './idle.ts'
 import { emitCompress } from './jobEvents.ts'
 import { isVideoName } from './listing.ts'
 import { CompressError, compressVideo, discardCompressed } from './media/compress.ts'
 import { compressImage, isCompressibleImageName } from './media/compressImage.ts'
-import { resolveFile } from './paths.ts'
+import { resolveDir, resolveFile } from './paths.ts'
+import { onShutdown } from './shutdown.ts'
 
 export type CompressJobState =
   /** In line: another compression is running */
@@ -83,23 +94,108 @@ interface QueueState {
   jobs: Map<string, CompressJob>
   /** Jobs still running or waiting, so they can be stopped */
   controllers: Map<string, AbortController>
+  /** Saves run one after another, so an older list can't overwrite a newer one */
+  saving: Promise<void>
+  /**
+   * The server is stopping: the running encodes are killed, but their jobs
+   * stay as they were saved (waiting / compressing), to start again next time
+   */
+  shuttingDown: boolean
 }
 
 const KEY = Symbol.for('med.compressQueue')
 const store = globalThis as typeof globalThis & { [KEY]?: QueueState }
-const state: QueueState = (store[KEY] ??= { jobs: new Map(), controllers: new Map() })
+/** First load in this process: the saved list is read, and the jobs that hadn't ended start again */
+const firstLoad = store[KEY] === undefined
+const state: QueueState = (store[KEY] ??= {
+  jobs: loadJobs(),
+  controllers: new Map(),
+  saving: Promise.resolve(),
+  shuttingDown: false,
+})
+// a state made by an older version of this file has none of these yet
+state.saving ??= Promise.resolve()
+state.shuttingDown ??= false
 
 /** Ended jobs kept in the list at most; the oldest go first */
 const MAX_ENDED = 500
 /** A job's progress is announced at most this often */
 const PROGRESS_EVERY_MS = 500
+/** The hidden file an encode writes to before it gets its name (./media/compress.ts, compressImage.ts) */
+const LEFTOVER = /^\.[0-9a-f-]{36}\.med-compress/
 
 export function isActive(job: CompressJob): boolean {
   return job.state === 'waiting' || job.state === 'compressing'
 }
 
+// ── Saving ──
+
+function isJob(value: unknown): value is CompressJob {
+  const j = value as Partial<CompressJob> | null
+  return (
+    !!j &&
+    typeof j.id === 'string' &&
+    typeof j.path === 'string' &&
+    typeof j.name === 'string' &&
+    typeof j.folder === 'string' &&
+    (j.kind === 'video' || j.kind === 'image') &&
+    typeof j.state === 'string' &&
+    typeof j.queuedAt === 'number'
+  )
+}
+
+/** The saved list (none, or unreadable: empty) */
+function loadJobs(): Map<string, CompressJob> {
+  const jobs = new Map<string, CompressJob>()
+  try {
+    const saved: unknown = JSON.parse(readFileSync(COMPRESS_QUEUE_FILE, 'utf8'))
+    if (Array.isArray(saved)) {
+      for (const job of saved) if (isJob(job)) jobs.set(job.id, { ...job, speed: null })
+    }
+  } catch {
+    // no file yet
+  }
+  return jobs
+}
+
+/** Saves the list as it is now (not while stopping: the saved one must keep the jobs to resume) */
+function save() {
+  if (state.shuttingDown) return
+  const text = JSON.stringify(compressJobs(), null, 2) + '\n'
+  state.saving = state.saving
+    .then(async () => {
+      // a temp file, then rename: a crash mid-write can't leave half a file
+      await mkdir(path.dirname(COMPRESS_QUEUE_FILE), { recursive: true })
+      const tmp = `${COMPRESS_QUEUE_FILE}.tmp`
+      await writeFile(tmp, text)
+      await rename(tmp, COMPRESS_QUEUE_FILE)
+    })
+    .catch((e) => console.error('Saving the compress queue failed:', e))
+}
+
+// ── Staying up, stopping ──
+
 // the server doesn't shut down when idle while anything is waiting or compressing
 keepAwake('compress', () => [...state.jobs.values()].some(isActive))
+
+/**
+ * Stopping the server: kill the running encodes (they'd go on without it),
+ * leaving their jobs saved as they are, to start again on the next start
+ */
+function stopForShutdown() {
+  state.shuttingDown = true
+  for (const controller of state.controllers.values()) controller.abort()
+}
+onShutdown('compress', stopForShutdown)
+// any other way out of the process (an error, process.exit elsewhere); once per process
+const EXIT_KEY = Symbol.for('med.compressQueueExit')
+const exitStore = globalThis as typeof globalThis & { [EXIT_KEY]?: boolean }
+if (!exitStore[EXIT_KEY]) {
+  exitStore[EXIT_KEY] = true
+  process.once('exit', () => stopForShutdown())
+}
+
+// ── The list ──
 
 function announce(job: CompressJob) {
   // a copy: the bus hands it to the streams later, and the job keeps changing
@@ -121,12 +217,13 @@ function prune() {
   emitCompress({ removed })
 }
 
-/** Ends a job (once: a job stopped while waiting has already ended) */
+/** Ends a job (once: a job stopped while waiting has already ended). Not while stopping */
 function end(job: CompressJob, changes: Partial<CompressJob>) {
-  if (job.endedAt !== null) return
+  if (job.endedAt !== null || state.shuttingDown) return
   Object.assign(job, changes, { endedAt: Date.now(), speed: null })
   touchActivity()
   announce(job)
+  save()
 }
 
 /**
@@ -182,6 +279,7 @@ export async function enqueueCompress(
     void run(job, file)
   }
   prune()
+  if (queued.length) save()
   return { queued, refused }
 }
 
@@ -195,6 +293,7 @@ async function run(job: CompressJob, file: string) {
       onStart: () => {
         job.state = 'compressing'
         announce(job)
+        save()
       },
       onProgress: (p) => {
         job.fraction = p.fraction
@@ -205,7 +304,7 @@ async function run(job: CompressJob, file: string) {
         announce(job)
       },
     })
-    if (job.endedAt !== null) return
+    if (job.endedAt !== null || state.shuttingDown) return
     if (result.compressed && result.name) {
       // by the path the listing shows (the original's folder as it was asked for)
       const copyPath = job.folder ? `${job.folder}/${result.name}` : result.name
@@ -245,6 +344,68 @@ async function run(job: CompressJob, file: string) {
   }
 }
 
+// ── Starting again after a restart ──
+
+/** Deletes the half-written files encodes left in `folders` when the server stopped under them */
+async function removeLeftovers(folders: Set<string>) {
+  for (const folder of folders) {
+    const dir = await resolveDir(folder)
+    if (!dir) continue
+    for (const name of await readdir(dir).catch(() => [] as string[])) {
+      if (!LEFTOVER.test(name)) continue
+      await unlink(path.join(dir, name)).then(
+        () => console.log(`Deleted a half-compressed leftover: ${path.join(dir, name)}`),
+        () => {},
+      )
+    }
+  }
+}
+
+/**
+ * The server just started with jobs that hadn't ended: each starts again, in
+ * the order they had (the one that was compressing first). A file that's
+ * gone meanwhile fails, saying so
+ */
+async function resumeInterrupted() {
+  // nothing runs yet in this process, so any leftover is from before
+  await removeLeftovers(new Set(compressJobs().map((j) => j.folder)))
+  const interrupted = compressJobs()
+    .filter(isActive)
+    .sort(
+      (a, b) =>
+        Number(b.state === 'compressing') - Number(a.state === 'compressing') ||
+        a.queuedAt - b.queuedAt,
+    )
+  if (interrupted.length === 0) return
+  console.log(`Compress queue: starting the ${interrupted.length} unfinished again`)
+  for (const job of interrupted) {
+    const wasRunning = job.state === 'compressing'
+    Object.assign(job, {
+      state: 'waiting',
+      fraction: 0,
+      speed: null,
+      note: wasRunning ? 'Started over: the server stopped while it was compressing' : '',
+    })
+    const file = await resolveFile(job.path)
+    if (!file) {
+      end(job, { state: 'failed', note: 'File not found: moved or deleted while the server was off' })
+      continue
+    }
+    announce(job)
+    void run(job, file)
+  }
+  save()
+}
+
+// after this file has run to the end (everything above is defined by then)
+if (firstLoad) {
+  setImmediate(() => {
+    resumeInterrupted().catch((e) => console.error('Resuming the compress queue failed:', e))
+  })
+}
+
+// ── Stopping, discarding, clearing ──
+
 /**
  * Stops jobs (`ids`), waiting or compressing: a running ffmpeg is killed and
  * nothing of it is kept; the copies already saved stay. Returns how many were stopped.
@@ -271,8 +432,8 @@ export function jobIdsIn(folder?: string): string[] {
 
 /**
  * Deletes the copy a job saved, for good (the original stays). Only for
- * copies saved in the last COMPRESS_DISCARD_WINDOW_MS; throws a
- * CompressError otherwise.
+ * copies saved in the last COMPRESS_DISCARD_WINDOW_MS, also across a restart
+ * (the saved list says when); throws a CompressError otherwise.
  */
 export async function discardCompressJob(id: string): Promise<CompressJob> {
   const job = state.jobs.get(id)
@@ -281,12 +442,16 @@ export async function discardCompressJob(id: string): Promise<CompressJob> {
   }
   const file = await resolveFile(job.copyPath)
   if (!file) throw new CompressError('The copy is gone already (moved or deleted)')
-  if (!(await discardCompressed(file))) {
-    throw new CompressError('Only copies compressed in the last day can be discarded')
+  // the job itself is the proof this file is a copy it saved (and when)
+  if (!(await discardCompressed(file, job.endedAt ?? undefined))) {
+    throw new CompressError(
+      'Only copies compressed in the last day can be discarded here: move it to the trash instead',
+    )
   }
   await setCompressedSeen(job.copyPath).catch(() => false)
   Object.assign(job, { state: 'discarded', after: null, note: '' })
   announce(job)
+  save()
   return job
 }
 
@@ -296,6 +461,9 @@ export function clearEndedCompress(folder?: string): number {
     .filter((j) => !isActive(j) && (folder === undefined || j.folder === folder))
     .map((j) => j.id)
   for (const id of removed) state.jobs.delete(id)
-  if (removed.length) emitCompress({ removed })
+  if (removed.length) {
+    emitCompress({ removed })
+    save()
+  }
   return removed.length
 }

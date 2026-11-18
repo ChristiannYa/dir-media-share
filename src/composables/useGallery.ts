@@ -19,6 +19,26 @@ export const RELOAD_GALLERY_KEY: InjectionKey<() => Promise<void>> = Symbol('rel
 export const REVEAL_ENTRY_KEY: InjectionKey<(path: string, openFolder?: boolean) => Promise<void>> =
   Symbol('revealEntry')
 
+/** The same as REVEAL_ENTRY_KEY's, for code outside App's components (set by App) */
+let revealHandler: ((path: string, openFolder?: boolean) => Promise<void>) | null = null
+
+/** App registers its reveal; returns a function that removes it again */
+export function setRevealHandler(handler: (path: string, openFolder?: boolean) => Promise<void>) {
+  revealHandler = handler
+  return () => {
+    if (revealHandler === handler) revealHandler = null
+  }
+}
+
+/**
+ * Opens the folder holding `path` (if it isn't the open one), scrolls to its
+ * card and plays its highlight sweep (App.vue). Nothing if the gallery isn't
+ * on screen (locked)
+ */
+export function revealInGallery(path: string): Promise<void> {
+  return revealHandler?.(path, true) ?? Promise.resolve()
+}
+
 /**
  * Provided by App: selection mode (tapping a file picks it; the bar at the
  * bottom acts on the picked ones). `start(path)` turns it on with that file

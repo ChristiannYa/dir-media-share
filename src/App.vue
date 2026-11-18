@@ -46,6 +46,7 @@ import {
   RELOAD_GALLERY_KEY,
   REVEAL_ENTRY_KEY,
   SELECTION_KEY,
+  setRevealHandler,
   useGallery,
 } from '@/composables/useGallery'
 import { onCompressFolderChanged } from '@/composables/useCompressQueue'
@@ -466,7 +467,7 @@ async function openFromMostPlayed(entry: Entry) {
     await navigate(folder)
   }
   await nextTick()
-  revealCard(entry.path)
+  await revealCard(entry.path)
 }
 
 /** Longest the smooth scroll to a revealed card is waited for (no scroll needed: no scrollend) */
@@ -489,26 +490,72 @@ function scrollSettled(maxMs: number): Promise<void> {
 const revealingPath = ref<string | null>(null)
 let revealTimer: ReturnType<typeof setTimeout> | undefined
 
+/** Longest wait for a card to be drawn, and for its place to stop moving (ms) */
+const REVEAL_LAYOUT_WAIT_MS = 1500
+/** Frames in a row a card must stay put to count as placed */
+const REVEAL_STILL_FRAMES = 3
+
+const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+
+/** The grid's card of `path` (not its copy in the "Most played" section), once drawn; null if it never is */
+async function findCard(path: string): Promise<HTMLElement | null> {
+  const selector = `.main-grid > .card[data-path="${CSS.escape(path)}"]`
+  const until = performance.now() + REVEAL_LAYOUT_WAIT_MS
+  for (;;) {
+    const card = document.querySelector<HTMLElement>(selector)
+    if (card || performance.now() > until) return card
+    await nextFrame()
+  }
+}
+
+/**
+ * Resolves once `card` stays in the same place on the page for a few frames:
+ * a folder just opened is still laying out (each card measures itself for the
+ * masonry grid after it's drawn), and scrolling before that ends up elsewhere
+ */
+async function cardPlaced(card: HTMLElement) {
+  const until = performance.now() + REVEAL_LAYOUT_WAIT_MS
+  let last = Number.NaN
+  let still = 0
+  while (still < REVEAL_STILL_FRAMES && performance.now() < until) {
+    await nextFrame()
+    const top = card.getBoundingClientRect().top + window.scrollY
+    still = Math.abs(top - last) < 1 ? still + 1 : 0
+    last = top
+  }
+}
+
+/** Only the latest reveal goes on (a second tap starts over) */
+let revealRun = 0
+
 /**
  * Scrolls the grid's card of `path` into the middle of the screen and, once
  * it's there, has it play the same sweep as a preview that just loaded
- * (GalleryCard.vue, the `revealing` watcher). False if the grid has no such card
+ * (GalleryCard.vue, the `revealing` watcher). Waits for the card to be drawn
+ * and placed first; if it moved while scrolling (pictures above it loaded),
+ * it's brought back to the middle. False if the grid has no such card
  */
-function revealCard(path: string): boolean {
-  // the grid's card, not its copy in the "Most played" section
-  const card = document.querySelector<HTMLElement>(
-    `.main-grid > .card[data-path="${CSS.escape(path)}"]`,
-  )
-  if (!card) return false
+async function revealCard(path: string): Promise<boolean> {
+  const run = ++revealRun
+  const card = await findCard(path)
+  if (!card || run !== revealRun) return false
+  await cardPlaced(card)
+  if (run !== revealRun || !card.isConnected) return false
   card.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  void scrollSettled(REVEAL_SCROLL_WAIT_MS).then(async () => {
-    // the same card again: play its sweep again
-    revealingPath.value = null
-    await nextTick()
-    revealingPath.value = path
-    clearTimeout(revealTimer)
-    revealTimer = setTimeout(() => (revealingPath.value = null), REVEAL_MS)
-  })
+  await scrollSettled(REVEAL_SCROLL_WAIT_MS)
+  if (run !== revealRun || !card.isConnected) return false
+  const rect = card.getBoundingClientRect()
+  const middle = rect.top + rect.height / 2
+  if (middle < window.innerHeight * 0.2 || middle > window.innerHeight * 0.8) {
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    await scrollSettled(REVEAL_SCROLL_WAIT_MS)
+  }
+  // the same card again: play its sweep again
+  revealingPath.value = null
+  await nextTick()
+  revealingPath.value = path
+  clearTimeout(revealTimer)
+  revealTimer = setTimeout(() => (revealingPath.value = null), REVEAL_MS)
   return true
 }
 
@@ -579,18 +626,23 @@ provide(RELOAD_GALLERY_KEY, async () => {
   await nextTick()
 })
 
-// a folder was just created: show where it landed in the grid
-provide(REVEAL_ENTRY_KEY, async (path: string, openFolder = false) => {
+// a folder was just created, a copy saved, a compression tapped in its popup:
+// show where it is in the grid (`openFolder`: its folder opens first)
+async function revealEntry(path: string, openFolder = false) {
   const folder = path.split('/').slice(0, -1).join('/')
   if (openFolder && folder !== currentPath.value) {
     picked.clear()
+    if (selecting.value) toggleSelecting()
     await navigate(folder) // lists the folder it opens
   } else {
     await reload()
   }
   await nextTick()
-  revealCard(path) // not there if it was made inside a subfolder: nothing to show
-})
+  await revealCard(path) // not there if it was made inside a subfolder: nothing to show
+}
+provide(REVEAL_ENTRY_KEY, revealEntry)
+// the same for code outside these components (the compress popup)
+const stopRevealHandler = setRevealHandler(revealEntry)
 
 async function shutdown() {
   if (!confirm(SHUTDOWN_CONFIRM)) return
@@ -637,6 +689,7 @@ onUnmounted(() => {
   clearTimeout(revealTimer)
   clearInterval(heartedSwapTimer)
   stopCompressWatch()
+  stopRevealHandler()
 })
 </script>
 

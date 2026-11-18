@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, inject, onUnmounted, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import { queueCompress, trashFile } from '@/api'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
+import { RELOAD_GALLERY_KEY } from '@/composables/useGallery'
+import { popupsGone } from '@/composables/usePopupOpen'
 import { COMPRESS_LABEL } from '@/constants'
 import {
   ICON_CHECK,
@@ -17,6 +19,7 @@ import {
 import type { Entry } from '@/types'
 import { isCompressible } from '@/utils/entry'
 import { formatSize } from '@/utils/format'
+import { puffAway } from '@/utils/puff'
 
 /**
  * Bar at the bottom of the screen in selection mode (turned on from a file's
@@ -103,39 +106,67 @@ const trashing = ref(false)
 const trashedCount = ref(0)
 const trashError = ref<string | null>(null)
 
+/** The files just moved to the trash, whose cards puff away once the prompt is gone */
+let trashedPaths: string[] = []
+
+/**
+ * Lists the folder again (App), resolving once the grid shows it. Captured
+ * now: this bar is gone (selection mode ended) by the time it's called
+ */
+const reloadGallery = inject(RELOAD_GALLERY_KEY, null)
+
 /** Moves every picked file to the trash, one after another; failures are listed */
 async function trashAll() {
   if (trashing.value) return
   trashing.value = true
   trashError.value = null
   trashedCount.value = 0
+  trashedPaths = []
   const failed: string[] = []
-  for (const entry of props.selected) {
+  // a copy: the listing doesn't change under it meanwhile, but to be sure
+  for (const entry of [...props.selected]) {
     try {
       await trashFile(entry.path)
       trashedCount.value++
+      trashedPaths.push(entry.path)
     } catch {
       failed.push(entry.name)
     }
   }
   trashing.value = false
-  if (trashedCount.value > 0) emit('changed')
   if (failed.length) trashError.value = `Not moved to the trash: ${failed.join(', ')}`
   else {
     confirmingTrash.value = false
-    emit('done')
+    finishTrash()
   }
+}
+
+/**
+ * Selection mode ends, and once the prompt has faded the trashed files' cards
+ * go up in a puff where they were (utils/puff.ts); then the folder lists
+ * again without them
+ */
+function finishTrash() {
+  const paths = trashedPaths
+  trashedPaths = []
+  emit('done')
+  if (paths.length === 0) return
+  const reload = reloadGallery
+  void popupsGone()
+    .then(() => puffAway(paths))
+    .finally(() => (reload ? reload() : emit('changed')))
 }
 
 /**
  * The trash prompt closes. Cancelled before trashing: selection mode stays
  * on. Closed after a trashing where some files failed (the error listed
- * them): it ends, like after one that went through
+ * them): it ends, like after one that went through, and the ones that were
+ * trashed puff away
  */
 function closeTrash() {
   if (trashing.value) return
   confirmingTrash.value = false
-  if (trashError.value) emit('done')
+  if (trashError.value) finishTrash()
   trashError.value = null
 }
 </script>
