@@ -49,6 +49,11 @@ export interface Entry {
    */
   compressed_new: boolean
   /**
+   * Folders only: compressed copies not opened yet directly inside it (not in
+   * its subfolders: the count is on the folder that holds them)
+   */
+  compressed_new_count: number | null
+  /**
    * Videos and photos: how many times it was played / shown in the viewer
    * (server/plays.ts). Folders: those of everything inside them added up
    * (subfolders included). Null for other files

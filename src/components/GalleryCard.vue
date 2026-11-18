@@ -20,7 +20,7 @@ import {
   BADGE_TARGETS_KEY,
   createBadgeStackState,
 } from '@/composables/useBadgeStack'
-import { ICON_EYE } from '@/icons'
+import { ICON_COMPRESS, ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
@@ -540,7 +540,20 @@ watch(
         @error="onPreviewFailed"
       />
       <!-- top-left: the preview's status pill (put here by PreviewVideo) -->
-      <div ref="stackEl" class="badge-stack"><div ref="rowEl" class="badge-row" /></div>
+      <div ref="stackEl" class="badge-stack">
+        <!-- the compressed copies not opened yet directly inside this folder (not
+             in its subfolders: the count is on the folder that holds them) -->
+        <StackBadge badge="compressedFolder" :show="!!entry.compressed_new_count && !viewsOnly">
+          <span
+            class="info-badge compressed-badge"
+            :title="`${entry.compressed_new_count} compressed ${entry.compressed_new_count === 1 ? 'copy' : 'copies'} not opened yet in this folder`"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+            {{ entry.compressed_new_count }}
+          </span>
+        </StackBadge>
+        <div ref="rowEl" class="badge-row" />
+      </div>
       <!-- its preview hasn't played yet: the still shows blurred, low
            quality, until the sweep below takes over and reveals the preview
            (thumbVeiled). Blurred even with Glass effect off (.force-glass) -->

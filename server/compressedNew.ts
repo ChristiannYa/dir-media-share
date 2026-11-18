@@ -41,6 +41,20 @@ export function isCompressedNew(rel: string): boolean {
   return unseen.has(rel)
 }
 
+/**
+ * How many compressed copies not opened yet are directly inside the folder
+ * `folderRel` ('' = the shared folder): only its direct children, not what's in
+ * its subfolders, so the count is on the folder that holds the copies
+ */
+export function compressedNewIn(folderRel: string): number {
+  const prefix = folderRel ? `${folderRel}/` : ''
+  let count = 0
+  for (const rel of unseen) {
+    if (rel.startsWith(prefix) && !rel.slice(prefix.length).includes('/')) count++
+  }
+  return count
+}
+
 /** A compression just saved the copy `rel`: it gets the banner */
 export async function markCompressedNew(rel: string): Promise<void> {
   if (unseen.has(rel)) return

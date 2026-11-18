@@ -32,6 +32,8 @@ export interface Entry {
   favorite_count?: number | null
   /** files only: a compressed copy not opened yet, shown with the "Compressed!" banner (every device) */
   compressed_new?: boolean
+  /** folders only: compressed copies not opened yet directly inside it (not its subfolders') */
+  compressed_new_count?: number | null
   /**
    * videos and photos: how many times it was played / shown in the viewer;
    * folders: those of everything inside added up (shared by every device)

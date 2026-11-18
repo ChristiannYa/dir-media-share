@@ -382,6 +382,8 @@ export const BADGES = {
   status: { priority: 40, kind: 'temporal' },
   /** "Compressed!": a compressed copy not opened yet */
   compressed: { priority: 20, kind: 'temporal' },
+  /** A folder card: how many compressed copies not opened yet are directly inside it */
+  compressedFolder: { priority: 20, kind: 'temporal' },
   /** How many times a video was played (goon mode): first in the row */
   plays: { priority: 10, kind: 'metadata' },
   /** An icon: the preview clip is the whole video, not slices; after the views in the row */
