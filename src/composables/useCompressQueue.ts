@@ -1,6 +1,20 @@
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { fetchCompressJobs } from '@/api'
 import type { CompressJob } from '@/types'
+import { haptic } from '@/utils/haptics'
+
+/** Goes up each time Compress is pressed: the top bar's indicator pulses (CompressButton.vue) */
+export const compressPulse = ref(0)
+
+/**
+ * Compress was just pressed: a tap of haptics and a pulse of the indicator,
+ * right away (before the server has answered). Call it from the press itself,
+ * as iPhones only allow haptics right after a tap
+ */
+export function pulseCompress() {
+  haptic('tap')
+  compressPulse.value++
+}
 
 /**
  * The server's compress queue (server/compressQueue.ts), live: the server

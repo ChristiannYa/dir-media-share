@@ -6,7 +6,7 @@ import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import { fileUrl, fixTs, queueCompress, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { useCompressQueue } from '@/composables/useCompressQueue'
+import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
   COMPRESS_LABEL,
@@ -143,6 +143,7 @@ const compressItem = computed<MenuItem>(() => ({
   disabled: compressQueued.value,
   disabledReason: 'Already in the compress queue',
   async run() {
+    pulseCompress()
     queueCompress([props.entry]).then(
       ({ refused }) => {
         if (refused[0]) alert(`${props.entry.name}: ${refused[0].error}`)

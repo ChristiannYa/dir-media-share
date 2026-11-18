@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import CompressDialog from '@/components/CompressDialog.vue'
-import { compressPercent, useCompressQueue } from '@/composables/useCompressQueue'
+import {
+  compressPercent,
+  compressPulse,
+  useCompressQueue,
+} from '@/composables/useCompressQueue'
 import { ICON_COMPRESS } from '@/icons'
 
 /**
@@ -22,6 +26,15 @@ const RING = 2 * Math.PI * 10
 const percent = computed(() => (activeCount.value > 0 ? compressPercent(list.value) : 100))
 const running = computed(() => activeCount.value > 0)
 
+/** Compress was just pressed: the button scales up and back down (restarts on every press) */
+const pulsing = ref(false)
+
+watch(compressPulse, async () => {
+  pulsing.value = false
+  await nextTick()
+  pulsing.value = true
+})
+
 const label = computed(() =>
   running.value
     ? `Compressing: ${activeCount.value} left, ${Math.floor(percent.value)}%`
@@ -35,9 +48,10 @@ const label = computed(() =>
       v-if="list.length > 0"
       type="button"
       class="compress-btn"
-      :class="{ running }"
+      :class="{ running, pulsing }"
       :aria-label="label"
       :title="label"
+      @animationend.self="pulsing = false"
       @click="open = true"
     >
       <svg viewBox="0 0 24 24" class="ring" aria-hidden="true">
@@ -153,6 +167,20 @@ const label = computed(() =>
   font-variant-numeric: tabular-nums;
 }
 
+/* Compress was pressed: swells up, dips a little under its size, settles */
+.compress-btn.pulsing {
+  animation: pulse 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes pulse {
+  35% {
+    transform: scale(1.5);
+  }
+  70% {
+    transform: scale(0.88);
+  }
+}
+
 /* appears / goes: pops in and out */
 .compress-btn-enter-active,
 .compress-btn-leave-active {
@@ -169,6 +197,10 @@ const label = computed(() =>
 
 @media (prefers-reduced-motion: reduce) {
   .compress-btn.running .ring {
+    animation: none;
+  }
+
+  .compress-btn.pulsing {
     animation: none;
   }
 

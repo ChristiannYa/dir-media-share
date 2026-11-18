@@ -41,8 +41,13 @@ const FORMATS: Record<string, Format> = { jpg: 'jpeg', jpeg: 'jpeg', png: 'png',
 /** How far below COMPRESS_PNG_QUALITY pngquant may go before it gives up on a PNG */
 const PNG_QUALITY_RANGE = 20
 
-/** Photos compressed at once; separate from the videos' line */
-const JOBS = new Semaphore(COMPRESS_IMAGE_MAX_JOBS)
+/**
+ * Photos compressed at once; separate from the videos' line. Kept on
+ * globalThis so a reload of this file keeps the same limiter (see ./compress.ts)
+ */
+const JOBS_KEY = Symbol.for('med.compressImageJobs')
+const jobsStore = globalThis as typeof globalThis & { [JOBS_KEY]?: Semaphore }
+const JOBS = (jobsStore[JOBS_KEY] ??= new Semaphore(COMPRESS_IMAGE_MAX_JOBS))
 
 function formatOf(name: string): Format | undefined {
   const ext = path.extname(name).slice(1).toLowerCase()

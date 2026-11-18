@@ -73,8 +73,15 @@ const TARGETS: Record<string, Target> = {
   webm: { format: 'webm', video: 'vp9' },
 }
 
-/** Compressions running at once: each already keeps every CPU core busy */
-const JOBS = new Semaphore(COMPRESS_MAX_JOBS)
+/**
+ * Compressions running at once: each already keeps several CPU cores busy.
+ * Kept on globalThis: Vite reloads server files after an edit
+ * (server/vitePlugin.ts), and a new limiter would let a second encode start
+ * beside the one still running under the old one
+ */
+const JOBS_KEY = Symbol.for('med.compressVideoJobs')
+const jobsStore = globalThis as typeof globalThis & { [JOBS_KEY]?: Semaphore }
+const JOBS = (jobsStore[JOBS_KEY] ??= new Semaphore(COMPRESS_MAX_JOBS))
 
 // ── Probing ──
 

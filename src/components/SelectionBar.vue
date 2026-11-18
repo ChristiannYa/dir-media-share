@@ -3,7 +3,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import { queueCompress, trashFile } from '@/api'
-import { useCompressQueue } from '@/composables/useCompressQueue'
+import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { COMPRESS_LABEL } from '@/constants'
 import {
   ICON_CHECK,
@@ -70,6 +70,7 @@ const NOTE_MS = 4000
  */
 async function compressSelected() {
   if (queueing.value || compressNew.value.length === 0) return
+  pulseCompress()
   queueing.value = true
   try {
     const { queued, refused } = await queueCompress([...compressNew.value])

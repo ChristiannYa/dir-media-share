@@ -57,7 +57,7 @@ export const COMPRESS_IMAGE_MAX_JOBS = 1
  * leave the rest for the gallery and anything else running. At least one
  * thread is always used
  */
-export const COMPRESS_CPU_SHARE = 0.7 // 70%
+export const COMPRESS_CPU_SHARE = 0.6 // 60%
 /**
  * Scheduling priority of every compression program (`nice`, 0–19): 19 is the
  * lowest, so anything else that needs the CPU always goes first
