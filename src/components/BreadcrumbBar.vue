@@ -6,6 +6,7 @@ import CompressButton from '@/components/CompressButton.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
+import { compressPulse, compressRequest } from '@/composables/useCompressQueue'
 import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
@@ -71,6 +72,65 @@ const { hidden } = useScrollHide(
 )
 // while a popup is open (usePopupOpen.ts), both bars slide up off the screen
 // whatever the scroll, and come back down when it closes
+
+// ── Compress pressed ──
+// Pressing Compress (a file's menu, which has the bars slid up, or the
+// selection bar) brings both bars into view, faster than usual, and keeps them
+// there for a moment (even if the page was scrolled down); once they've slid
+// down, the compress indicator pulses (CompressButton.vue)
+
+/** The bars are held in view (.reveal): they slide down quickly, and scrolling doesn't hide them */
+const revealing = ref(false)
+/** How long the bars are held in view after the slide (ms): the pulse plays meanwhile */
+const REVEAL_HOLD_MS = 2500
+/** Longest wait for the slide to end, in case it never runs (already in view) (ms) */
+const SLIDE_WAIT_MS = 300
+const topbarEl = ref<HTMLElement | null>(null)
+let revealHold: ReturnType<typeof setTimeout> | undefined
+/** Only the latest press goes on to pulse */
+let revealRun = 0
+
+/** Resolves once the popup that has the bars slid up is gone (at once if none is open) */
+function popupClosed(): Promise<void> {
+  if (!popupOpen.value) return Promise.resolve()
+  return new Promise((resolve) => {
+    const stop = watch(popupOpen, (open) => {
+      if (open) return
+      stop()
+      resolve()
+    })
+  })
+}
+
+/** Resolves when the bars finish sliding, or after SLIDE_WAIT_MS if they had nowhere to slide */
+function slideEnded(): Promise<void> {
+  return new Promise((resolve) => {
+    const el = topbarEl.value
+    const done = () => {
+      clearTimeout(timer)
+      el?.removeEventListener('transitionend', onEnd)
+      resolve()
+    }
+    const onEnd = (e: TransitionEvent) => {
+      if (e.target === el && e.propertyName === 'transform') done()
+    }
+    const timer = setTimeout(done, SLIDE_WAIT_MS)
+    el?.addEventListener('transitionend', onEnd)
+  })
+}
+
+watch(compressRequest, async () => {
+  const run = ++revealRun
+  clearTimeout(revealHold)
+  revealing.value = true
+  await popupClosed()
+  await nextTick()
+  await slideEnded()
+  if (run !== revealRun) return
+  compressPulse.value++
+  revealHold = setTimeout(() => (revealing.value = false), REVEAL_HOLD_MS)
+})
+onUnmounted(() => clearTimeout(revealHold))
 
 // the top bar's height: how far the bars move up when it hides, so the
 // alphabet bar ends up where the top bar was
@@ -284,8 +344,9 @@ onUnmounted(() => clearTimeout(settleTimer))
   <!-- the top bar and, under it, the alphabet bar: they stick together; while
        scrolling down only the top bar slides away and the alphabet moves up -->
   <header
+    ref="topbarEl"
     class="topbar"
-    :class="{ hidden, 'popup-hidden': popupOpen }"
+    :class="{ hidden, 'popup-hidden': popupOpen, reveal: revealing }"
     :style="{ '--nav-height': `${navHeight}px` }"
   >
   <nav ref="navEl" class="breadcrumb glass-bar">
@@ -469,12 +530,27 @@ onUnmounted(() => clearTimeout(settleTimer))
   pointer-events: none;
 }
 
+/* Compress was pressed: held in view, and sliding down fast (0.14 s, the usual
+   is 0.25–0.6 s). Only once no popup has them slid up (:not(.popup-hidden)),
+   so it also wins over a scroll-hidden bar (.hidden) */
+.topbar.reveal:not(.popup-hidden),
+.topbar.reveal.hidden:not(.popup-hidden) {
+  transform: none;
+  transition: transform 0.14s ease-out;
+}
+
+.topbar.reveal.hidden:not(.popup-hidden) .breadcrumb {
+  pointer-events: auto;
+}
+
 /* no sliding: the bars just jump. After the rules above, and listing
    .hidden and .popup-hidden, whose own transitions would win otherwise */
 @media (prefers-reduced-motion: reduce) {
   .topbar,
   .topbar.hidden,
-  .topbar.popup-hidden {
+  .topbar.popup-hidden,
+  .topbar.reveal:not(.popup-hidden),
+  .topbar.reveal.hidden:not(.popup-hidden) {
     transition: none;
   }
 }

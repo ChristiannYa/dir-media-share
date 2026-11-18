@@ -3,17 +3,24 @@ import { fetchCompressJobs } from '@/api'
 import type { CompressJob } from '@/types'
 import { haptic } from '@/utils/haptics'
 
-/** Goes up each time Compress is pressed: the top bar's indicator pulses (CompressButton.vue) */
+/**
+ * Goes up each time Compress is pressed. The top bar (BreadcrumbBar.vue)
+ * answers by sliding into view, quickly, and bumps `compressPulse` once it's there
+ */
+export const compressRequest = ref(0)
+
+/** Goes up when the indicator should pulse (CompressButton.vue): the top bar is in view */
 export const compressPulse = ref(0)
 
 /**
- * Compress was just pressed: a tap of haptics and a pulse of the indicator,
- * right away (before the server has answered). Call it from the press itself,
- * as iPhones only allow haptics right after a tap
+ * Compress was just pressed: a tap of haptics right away, and the top bar
+ * slides into view, after which the indicator pulses. Call it from the press
+ * itself (before the server has answered), as iPhones only allow haptics
+ * right after a tap
  */
 export function pulseCompress() {
   haptic('tap')
-  compressPulse.value++
+  compressRequest.value++
 }
 
 /**

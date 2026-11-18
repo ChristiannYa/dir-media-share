@@ -19,6 +19,7 @@
   "badgeGlassRatio": 0.05,
   "lightboxDarkness": 0.4,
   "lightboxRingWidth": 2,
+  "popupDarkness": 0.5,
   "bgBrightness": 1.5,
   "bgDriftSeconds": 0
 }
