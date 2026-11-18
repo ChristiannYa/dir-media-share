@@ -692,6 +692,7 @@ onUnmounted(() => {
                     :selecting="false"
                     :selected="false"
                     link-only
+                    bare
                     @open="openFromMostPlayed"
                     @favorite="toggleFavorite"
                     @changed="refresh"

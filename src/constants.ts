@@ -316,7 +316,7 @@ export const SKY_STAR_COLORS: ReadonlyArray<{ color: string; weight: number }> =
 
 /** Tooltip of the red "TS" badge on videos that are MPEG-TS saved as .mp4 */
 export const TS_BADGE_TITLE =
-  "MPEG-TS saved as .mp4. Browsers can't play it. Right-click or hold the video, then \"Fix TS\" to save a playable copy."
+  'MPEG-TS saved as .mp4. Browsers can\'t play it. Right-click or hold the video, then "Fix TS" to save a playable copy.'
 /** File menu item on MPEG-TS videos that saves a playable "<name>_ts_fix.mp4" copy */
 export const FIX_TS_LABEL = 'Fix TS'
 /** Confirmation shown before the shutdown button stops the server */
@@ -405,7 +405,7 @@ export const MOST_PLAYED_PARENTS: readonly string[] = ['bin']
  */
 export const MOST_PLAYED_COUNT = 10
 /** Title of that section */
-export const MOST_PLAYED_TITLE = 'Most played'
+export const MOST_PLAYED_TITLE = 'Most viewed'
 /** Shown in that section while nothing in the folder was played yet */
 export const MOST_PLAYED_EMPTY_TEXT = 'Nothing played here yet'
 /**
@@ -419,7 +419,7 @@ export const HEARTED_POOL = 40
 /** Every this many ms, a full "Hearted" section swaps one random card for one it doesn't show */
 export const HEARTED_SWAP_MS = 5000
 /** Title of that section */
-export const HEARTED_TITLE = 'Hearted'
+export const HEARTED_TITLE = 'Mos loved'
 /** Shown in that section while nothing in the folder is hearted */
 export const HEARTED_EMPTY_TEXT = 'Nothing hearted here yet'
 /**

@@ -46,6 +46,8 @@ const props = defineProps<{
    * quality, duration, size, heart or folder counts on the preview
    */
   viewsOnly?: boolean
+  /** Just the preview (the "Hearted" section): no badges, heart or status pill on a photo / video */
+  bare?: boolean
   /** The app just led you here (App.vue revealCard): it flashes for REVEAL_MS */
   revealing?: boolean
 }>()
@@ -567,7 +569,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       />
       <!-- viewsOnly: just how many times it was shown, bottom-right like a folder's -->
       <span
-        v-if="viewsOnly"
+        v-if="viewsOnly && !bare"
         class="info-badge plays-badge views-only"
         :class="badgeGlass"
         :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
@@ -575,7 +577,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
         {{ entry.plays ?? 0 }}
       </span>
-      <div v-if="!viewsOnly" class="video-badges">
+      <div v-if="!viewsOnly && !bare" class="video-badges">
         <button
           v-if="!linkOnly"
           type="button"
@@ -636,6 +638,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         v-if="showPreview(trackKey)"
         :key="previewGeneration"
         kind="video"
+        :bare="bare"
         :path="entry.path"
         :active="isPreviewActive(trackKey)"
         :api-url="previewUrl(entry.path)"
@@ -669,7 +672,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
            Pops in / out when the app mode (or selection mode) switches -->
       <Transition name="mode-badge">
         <span
-          v-if="!selecting && recordsVideoData"
+          v-if="!selecting && recordsVideoData && !bare"
           class="info-badge plays-badge"
           :class="[badgeGlass, { 'views-only': viewsOnly }]"
           :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
@@ -679,10 +682,14 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         </span>
       </Transition>
       <!-- top-right: the quality -->
-      <span v-if="quality && !viewsOnly" class="info-badge quality-badge" :class="badgeGlass">
+      <span
+        v-if="quality && !viewsOnly && !bare"
+        class="info-badge quality-badge"
+        :class="badgeGlass"
+      >
         {{ quality }}
       </span>
-      <div v-if="!viewsOnly" class="video-badges">
+      <div v-if="!viewsOnly && !bare" class="video-badges">
         <!-- bottom-left: the TS warning -->
         <span v-if="entry.needs_fix" class="ts-badge" :title="TS_BADGE_TITLE">TS</span>
         <!-- heart, left of the duration and size (not on a link-only card) -->

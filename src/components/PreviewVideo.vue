@@ -22,6 +22,8 @@ const props = defineProps<{
   kind: JobKind
   /** Plays while true (card on screen); paused, but kept loaded, while false */
   active: boolean
+  /** Just the video: no status pill */
+  bare?: boolean
 }>()
 const emit = defineEmits<{
   /**
@@ -284,7 +286,7 @@ const status = computed<{ icon: Icon; text: string; busy: boolean }>(() => {
       @error="onVideoError"
     />
     <div
-      v-if="settings.showPreviewStatus"
+      v-if="settings.showPreviewStatus && !bare"
       class="status badge-glass"
       :class="{ busy: status.busy, failed: phase === 'failed', hidden: !showStatus }"
       :title="status.text"
@@ -294,7 +296,7 @@ const status = computed<{ icon: Icon; text: string; busy: boolean }>(() => {
     </div>
     <!-- TEMPORARY: the clip is the whole video, not slices -->
     <div
-      v-if="showWholeTag"
+      v-if="showWholeTag && !bare"
       class="whole-tag badge-glass"
       @animationend="showWholeTag = false"
     >
