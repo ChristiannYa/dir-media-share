@@ -9,8 +9,6 @@ import { useAutoHide } from '@/composables/useAutoHide'
 import { onCaptureResume, takeViewerResume, type ViewerResume } from '@/composables/useResume'
 import { settings } from '@/settings'
 import type { Entry } from '@/types'
-import { ICON_DOWNLOAD } from '@/icons'
-import { downloadFile } from '@/utils/download'
 import { formatQuality } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
@@ -27,9 +25,9 @@ import { haptic } from '@/utils/haptics'
  * is), at its top left the time left until the app locks and the app mode
  * (.media-status: both from the top bar, which the viewer covers; a tap on
  * the mode switches it), at its top right a video's resolution, and on a
- * photo download and fullscreen buttons at its bottom right (in photo
- * fullscreen a rotate button too; videos have their player's own buttons,
- * download among them). In photo fullscreen they're pinned to the screen's
+ * photo a fullscreen button at its bottom right (in photo fullscreen a
+ * rotate button too; videos have their player's own buttons). Downloading
+ * is in a card's menu (FileMenu.vue). In photo fullscreen they're pinned to the screen's
  * corners instead, and going to the next / previous skips the videos (a
  * video's taps and swipes are its player's) and loops from the last photo to
  * the first; the counter then counts the photos. In video fullscreen the
@@ -459,15 +457,6 @@ onUnmounted(() => {
         <!-- a photo's buttons, in a row at its bottom-right corner (in
              fullscreen: the screen's) -->
         <div v-if="entry.kind === 'image'" class="photo-buttons">
-        <!-- saves the photo to the device -->
-        <button
-          class="round-btn fullscreen-btn"
-          aria-label="Download"
-          title="Download"
-          @click="downloadFile(fileUrl(entry.path), entry.name)"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_DOWNLOAD" /></svg>
-        </button>
         <!-- fullscreen: turns the photo a quarter clockwise, left of the fullscreen button -->
         <button
           v-if="fullscreen"
@@ -642,7 +631,7 @@ onUnmounted(() => {
   fill: currentColor;
 }
 
-/* a photo's buttons (download, rotate, fullscreen): a row over its
+/* a photo's buttons (rotate, fullscreen): a row over its
    bottom-right corner */
 .photo-buttons {
   position: absolute;

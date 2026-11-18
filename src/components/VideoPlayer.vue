@@ -10,8 +10,7 @@ import { useHoldSeek } from '@/composables/useHoldSeek'
 import { onCaptureResume, type ViewerResume } from '@/composables/useResume'
 import { useVideoPlayer } from '@/composables/useVideoPlayer'
 import { settings } from '@/settings'
-import { ICON_DOWNLOAD, ICON_EYE } from '@/icons'
-import { downloadFile } from '@/utils/download'
+import { ICON_EYE } from '@/icons'
 import { viewHaptic } from '@/utils/haptics'
 import { formatDuration } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
@@ -19,8 +18,7 @@ import { haptic } from '@/utils/haptics'
 /**
  * `poster` is shown until the first frame decodes (the grid's still, already
  * cached); `quality` ("1080p", "4K60"…) is shown at the top right in
- * fullscreen (outside it, the viewer shows it). The download button, left of
- * the sound button, saves the video to the device.
+ * fullscreen (outside it, the viewer shows it).
  * `resume`: this video was open when the app locked; it goes back to that
  * time, paused or playing as it was, and fullscreen if it was.
  * `aspect`: the video's width / height (from the listing), so the player
@@ -36,11 +34,6 @@ const props = defineProps<{
   resume?: ViewerResume | null
   aspect?: number | null
 }>()
-
-/** Saves the video to the device, under its own name */
-function download() {
-  downloadFile(props.src, props.path?.split('/').pop() || 'video')
-}
 
 /** The video's own width / height as the browser plays it, once loaded */
 const loadedAspect = ref<number | null>(null)
@@ -595,9 +588,6 @@ onUnmounted(() => {
 
         <span class="spacer" />
 
-        <button class="theme-glass" aria-label="Download" title="Download" @click="download">
-          <svg viewBox="0 0 24 24"><path :d="ICON_DOWNLOAD" /></svg>
-        </button>
 
         <button class="theme-glass" :aria-label="muted ? 'Unmute' : 'Mute'" @click="onSoundToggle">
           <svg v-if="muted" viewBox="0 0 24 24">
@@ -610,7 +600,13 @@ onUnmounted(() => {
           </svg>
         </button>
 
-        <button v-if="canRotate" class="theme-glass" aria-label="Rotate" @click="rotate">
+        <!-- fullscreen only: not in the carousel -->
+        <button
+          v-if="canRotate && fullscreen"
+          class="theme-glass"
+          aria-label="Rotate"
+          @click="rotate"
+        >
           <svg viewBox="0 0 24 24">
             <path
               d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77a1.49 1.49 0 0 0-2.12 0L1.75 8.11a1.49 1.49 0 0 0 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36a1.49 1.49 0 0 0 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"
