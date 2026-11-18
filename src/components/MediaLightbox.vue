@@ -9,6 +9,8 @@ import { useAutoHide } from '@/composables/useAutoHide'
 import { onCaptureResume, takeViewerResume, type ViewerResume } from '@/composables/useResume'
 import { settings } from '@/settings'
 import type { Entry } from '@/types'
+import { ICON_DOWNLOAD } from '@/icons'
+import { downloadFile } from '@/utils/download'
 import { formatQuality } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
@@ -24,9 +26,10 @@ import { haptic } from '@/utils/haptics'
  * What's over the photo / video: a counter at its top middle (which item this
  * is), at its top left the time left until the app locks and the app mode
  * (.media-status: both from the top bar, which the viewer covers; a tap on
- * the mode switches it), and on a photo a fullscreen button at its
- * bottom right (in photo fullscreen a rotate button too; videos have their
- * player's own buttons). In photo fullscreen they're pinned to the screen's
+ * the mode switches it), at its top right a video's resolution, and on a
+ * photo download and fullscreen buttons at its bottom right (in photo
+ * fullscreen a rotate button too; videos have their player's own buttons,
+ * download among them). In photo fullscreen they're pinned to the screen's
  * corners instead, and going to the next / previous skips the videos (a
  * video's taps and swipes are its player's) and loops from the last photo to
  * the first; the counter then counts the photos. In video fullscreen the
@@ -219,6 +222,12 @@ const counterText = computed(() => {
   return index.value >= 0 && props.entries.length > 1
     ? `${index.value + 1} / ${props.entries.length}`
     : ''
+})
+
+/** A video's resolution ("1080p", "4K60"…), at the top right; null for photos or if unknown */
+const videoQuality = computed(() => {
+  const e = props.entry
+  return e?.kind === 'video' ? formatQuality(e.width, e.height, e.fps) || null : null
 })
 
 /** Photo fullscreen: any tap, mouse move or key shows what's over the photo (on a video the player handles its own) */
@@ -427,6 +436,13 @@ onUnmounted(() => {
         <div class="media-status">
           <LockTimer class="media-pill" :class="{ 'theme-glass': entry.kind === 'video' }" />
           <AppModeButton class="media-pill" :class="{ 'theme-glass': entry.kind === 'video' }" />
+          <!-- a video's resolution, at the top right ("1080p", "4K60"…) -->
+          <span
+            v-if="entry.kind === 'video' && videoQuality"
+            class="media-pill media-quality theme-glass"
+            title="Video quality"
+            >{{ videoQuality }}</span
+          >
         </div>
         <img
           v-if="entry.kind === 'image'"
@@ -440,9 +456,21 @@ onUnmounted(() => {
           @pointerup="onSwipeEnd"
           @pointercancel="onSwipeCancel"
         />
+        <!-- a photo's buttons, in a row at its bottom-right corner (in
+             fullscreen: the screen's) -->
+        <div v-if="entry.kind === 'image'" class="photo-buttons">
+        <!-- saves the photo to the device -->
+        <button
+          class="round-btn fullscreen-btn"
+          aria-label="Download"
+          title="Download"
+          @click="downloadFile(fileUrl(entry.path), entry.name)"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_DOWNLOAD" /></svg>
+        </button>
         <!-- fullscreen: turns the photo a quarter clockwise, left of the fullscreen button -->
         <button
-          v-if="entry.kind === 'image' && fullscreen"
+          v-if="fullscreen"
           class="round-btn fullscreen-btn rotate-btn"
           aria-label="Rotate"
           title="Rotate (r)"
@@ -456,7 +484,7 @@ onUnmounted(() => {
         </button>
         <!-- over the photo's bottom-right corner -->
         <button
-          v-if="entry.kind === 'image' && canFullscreen"
+          v-if="canFullscreen"
           class="round-btn fullscreen-btn"
           :aria-label="fullscreen ? 'Exit fullscreen' : 'Fullscreen'"
           :title="fullscreen ? 'Exit fullscreen (f)' : 'Fullscreen (f)'"
@@ -469,13 +497,14 @@ onUnmounted(() => {
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z" />
           </svg>
         </button>
+        </div>
         <VideoPlayer
           v-if="entry.kind === 'video'"
           :src="fileUrl(entry.path)"
           :path="entry.path"
           :poster="thumbUrl(entry.path)"
           :storyboard="storyboardUrl(entry.path)"
-          :quality="formatQuality(entry.width, entry.height, entry.fps)"
+          :quality="videoQuality"
           :resume="videoResume"
           :aspect="entry.width && entry.height ? entry.width / entry.height : null"
           @played="emit('viewed', entry)"
@@ -613,12 +642,27 @@ onUnmounted(() => {
   fill: currentColor;
 }
 
-/* on the photo: see-through, so it doesn't hide much of it */
-.fullscreen-btn {
+/* a photo's buttons (download, rotate, fullscreen): a row over its
+   bottom-right corner */
+.photo-buttons {
   position: absolute;
   z-index: 2; /* above the ring */
   right: 0.6rem;
   bottom: 0.6rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* fullscreen: pinned to the screen's bottom-right corner, always on screen */
+.lightbox.fullscreen .photo-buttons {
+  position: fixed;
+  right: 1rem;
+  /* above the phone's gesture bar */
+  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+
+/* on the photo: see-through, so it doesn't hide much of it */
+.fullscreen-btn {
   width: 2.2rem;
   height: 2.2rem;
   background: rgba(0, 0, 0, 0.45);
@@ -629,19 +673,6 @@ onUnmounted(() => {
 
 .fullscreen-btn:hover {
   background: rgba(0, 0, 0, 0.7);
-}
-
-/* fullscreen: pinned to the screen's bottom-right corner, always on screen */
-.lightbox.fullscreen .fullscreen-btn {
-  position: fixed;
-  right: 1rem;
-  /* above the phone's gesture bar */
-  bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
-}
-
-/* just left of the fullscreen button (its width + a gap) */
-.lightbox.fullscreen .rotate-btn {
-  right: calc(1rem + 2.2rem + 0.5rem);
 }
 
 /* turned photo: centered and rotated around its middle. Turned sideways,
@@ -668,9 +699,13 @@ onUnmounted(() => {
   left: 50%;
   transform: translateX(-50%);
   margin: 0;
+  /* the same height as the pills at the top left (.media-pill): their font
+     size, line height, padding and 1px rim. It used to be a bigger font with
+     the font's own line height, a few px taller */
   padding: 0.3rem 0.75rem;
   border-radius: 999px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  line-height: 1.25;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   pointer-events: none;
@@ -683,12 +718,16 @@ onUnmounted(() => {
 }
 
 /* the lock countdown and the app mode, side by side at the top left of the
-   photo / video */
+   photo / video, and a video's resolution at its top right. The row spans
+   the whole top, so it lets taps through itself (to the photo / video under
+   it); only the mode takes them */
 .media-status {
   position: absolute;
   z-index: 5;
   top: 0.6rem;
   left: 0.6rem;
+  right: 0.6rem;
+  pointer-events: none;
   display: flex;
   align-items: center;
   gap: 0.4rem;
@@ -709,34 +748,35 @@ onUnmounted(() => {
   line-height: 1.25;
 }
 
-.media-status .lock-timer {
-  pointer-events: none;
+.media-status :deep(.app-mode-group) {
+  pointer-events: auto;
+}
+
+/* the resolution: pushed to the right end, a little bolder */
+.media-status .media-quality {
+  margin-left: auto;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 /* small screens: the timer stays top left, the mode and its image go to the
-   top right. The row then spans the whole top, so it lets taps through
-   itself (to the photo / video under it); only the mode takes them */
+   top right (left of a video's resolution) */
 @media (max-width: 600px) {
-  .media-status {
-    right: 0.6rem;
-    pointer-events: none;
-  }
-
   .media-status :deep(.app-mode-group) {
     margin-left: auto;
-    pointer-events: auto;
   }
 
-  .lightbox.fullscreen .media-status {
-    right: 1rem;
+  .media-status .media-quality {
+    margin-left: 0;
   }
 }
 
-/* photo fullscreen: the top left of the screen */
+/* photo fullscreen: the top of the screen */
 .lightbox.fullscreen .media-status {
   position: fixed;
   top: 1rem;
   left: 1rem;
+  right: 1rem;
 }
 
 /* the counter, the lock timer and the mode on a photo: dark glass, like the
@@ -744,15 +784,11 @@ onUnmounted(() => {
 .media-counter:not(.theme-glass),
 .media-status :deep(.media-pill:not(.theme-glass)) {
   background: rgba(0, 0, 0, 0.45);
-  border: none;
+  /* no rim, but its 1px room kept, so they're as tall as on a video */
+  border: 1px solid transparent;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   color: #ddd;
-}
-
-/* the pills keep the 1px rim's room on a photo too (see .media-status) */
-.media-status :deep(.media-pill:not(.theme-glass)) {
-  border: 1px solid transparent;
 }
 
 /* on a video: .theme-glass (tokens.css) gives the glass, like the player's

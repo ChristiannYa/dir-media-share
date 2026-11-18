@@ -5,7 +5,7 @@ import CompressDialog from '@/components/CompressDialog.vue'
 import EditDialog from '@/components/EditDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
-import { fixTs, trashFile } from '@/api'
+import { fileUrl, fixTs, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
@@ -19,6 +19,7 @@ import {
 } from '@/constants'
 import {
   ICON_COMPRESS,
+  ICON_DOWNLOAD,
   ICON_EDIT,
   ICON_FIX,
   ICON_FOLDER_MOVE,
@@ -27,14 +28,16 @@ import {
   ICON_TRASH,
 } from '@/icons'
 import type { Entry, MenuDetail, MenuItem } from '@/types'
+import { downloadFile } from '@/utils/download'
 import { isCompressible, isEditable } from '@/utils/entry'
 import { minuteClock } from '@/utils/clock'
 import { formatAgo, formatLongDate, formatSize } from '@/utils/format'
 
 /**
  * Menu of a video / image / file card: its dates, then icon buttons to fix,
- * edit (or rename), compress, select (turns on selection mode), move or
- * delete it (the rows are listed above the items, below). The card opens it
+ * edit (or rename), download (photos and videos), compress, select (turns on
+ * selection mode), move or delete it (the rows are listed above the items,
+ * below). The card opens it
  * (`open()`) on a right-click or press-and-hold.
  */
 const props = defineProps<{ entry: Entry }>()
@@ -68,7 +71,7 @@ function fixBusyLabel(): string {
 // The menu's buttons are icons only (CardMenu's icon-only): each label is
 // its tooltip and screen-reader name. In rows:
 //  1. Fix TS (only for a .ts that needs it)
-//  2. edit (rename for files that can't be edited), compress, select
+//  2. edit (rename for files that can't be edited), download, compress, select
 //  3. move, trash
 
 const fixItem: MenuItem = {
@@ -110,6 +113,17 @@ const editItem: MenuItem = isEditable(props.entry)
         return null
       },
     }
+
+/** Saves the file to the device, under its own name */
+const downloadItem: MenuItem = {
+  label: 'Download',
+  icon: ICON_DOWNLOAD,
+  row: 'tools',
+  async run() {
+    downloadFile(fileUrl(props.entry.path), props.entry.name)
+    return null
+  },
+}
 
 const compressItem: MenuItem = {
   label: COMPRESS_LABEL,
@@ -164,6 +178,7 @@ const trashItem: MenuItem = {
 const menuItems = computed<MenuItem[]>(() => [
   ...(props.entry.needs_fix ? [fixItem] : []),
   editItem,
+  ...(props.entry.kind === 'image' || props.entry.kind === 'video' ? [downloadItem] : []),
   ...(isCompressible(props.entry) ? [compressItem] : []),
   ...(selection && !selection.active.value ? [selectItem] : []),
   moveItem,

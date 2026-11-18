@@ -10,14 +10,17 @@ import { useHoldSeek } from '@/composables/useHoldSeek'
 import { onCaptureResume, type ViewerResume } from '@/composables/useResume'
 import { useVideoPlayer } from '@/composables/useVideoPlayer'
 import { settings } from '@/settings'
-import { ICON_EYE } from '@/icons'
+import { ICON_DOWNLOAD, ICON_EYE } from '@/icons'
+import { downloadFile } from '@/utils/download'
 import { viewHaptic } from '@/utils/haptics'
 import { formatDuration } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
 /**
  * `poster` is shown until the first frame decodes (the grid's still, already
- * cached); `quality` ("1080p", "4K60"…) is shown left of the sound button.
+ * cached); `quality` ("1080p", "4K60"…) is shown at the top right in
+ * fullscreen (outside it, the viewer shows it). The download button, left of
+ * the sound button, saves the video to the device.
  * `resume`: this video was open when the app locked; it goes back to that
  * time, paused or playing as it was, and fullscreen if it was.
  * `aspect`: the video's width / height (from the listing), so the player
@@ -33,6 +36,11 @@ const props = defineProps<{
   resume?: ViewerResume | null
   aspect?: number | null
 }>()
+
+/** Saves the video to the device, under its own name */
+function download() {
+  downloadFile(props.src, props.path?.split('/').pop() || 'video')
+}
 
 /** The video's own width / height as the browser plays it, once loaded */
 const loadedAspect = ref<number | null>(null)
@@ -543,6 +551,14 @@ onUnmounted(() => {
     <!-- fullscreen: time left until the app locks, at the top left; shows and
          hides with the controls (the viewer's own one is outside fullscreen) -->
     <LockTimer v-if="fullscreen" class="player-timer control theme-glass" />
+    <!-- fullscreen: the resolution at the top right (outside fullscreen the
+         viewer shows its own, MediaLightbox.vue) -->
+    <span
+      v-if="fullscreen && quality"
+      class="player-quality control theme-glass"
+      title="Video quality"
+      >{{ quality }}</span
+    >
 
     <button
       class="center-play control theme-glass"
@@ -579,7 +595,9 @@ onUnmounted(() => {
 
         <span class="spacer" />
 
-        <span v-if="quality" class="quality theme-glass" title="Video quality">{{ quality }}</span>
+        <button class="theme-glass" aria-label="Download" title="Download" @click="download">
+          <svg viewBox="0 0 24 24"><path :d="ICON_DOWNLOAD" /></svg>
+        </button>
 
         <button class="theme-glass" :aria-label="muted ? 'Unmute' : 'Mute'" @click="onSoundToggle">
           <svg v-if="muted" viewBox="0 0 24 24">
@@ -928,6 +946,7 @@ svg {
   border-radius: 999px;
   color: #fff;
   font-size: 0.8rem;
+  line-height: 1.25;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
   pointer-events: none;
 }
@@ -1004,14 +1023,21 @@ svg {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
 }
 
-/* the resolution, left of the sound button: a pill like the time, a little bolder */
-.quality {
+/* fullscreen: the resolution, pinned to the screen's top right, the same
+   pill as the lock timer opposite it, a little bolder */
+.player-quality {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
   padding: 0.3rem 0.65rem;
   border-radius: 999px;
-  font-size: 0.75rem;
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.25;
   font-weight: 700;
   letter-spacing: 0.02em;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  pointer-events: none;
 }
 
 .spacer {

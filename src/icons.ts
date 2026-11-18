@@ -2,6 +2,8 @@
 
 /** Arrow going up out of a tray */
 export const ICON_UPLOAD = 'M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z'
+/** Arrow down onto a tray: saving a file to the device (the viewer) */
+export const ICON_DOWNLOAD = 'M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z'
 
 /** Folder with a plus */
 export const ICON_NEW_FOLDER =
