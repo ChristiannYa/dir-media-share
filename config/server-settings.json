@@ -4,6 +4,7 @@
   "folderPreviewItems": 6,
   "thumbQuality": 4,
   "cacheMaxAgeDays": 30,
+  "cacheMaxGB": 40,
   "lockAfterMinutes": 10,
   "idleShutdownMinutes": 30
 }

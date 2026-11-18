@@ -638,6 +638,22 @@ watch(
           <span class="info-badge compressed-badge">Compressed!</span>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
+        <!-- how many times it was shown in the viewer, like a video's (in the
+             metadata row; not in selection mode: the check is there) -->
+        <StackBadge
+          v-if="!viewsOnly"
+          badge="plays"
+          :show="!selecting && recordsVideoData && !bare"
+        >
+          <span
+            class="info-badge plays-badge"
+            :class="badgeGlass"
+            :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+            {{ entry.plays ?? 0 }}
+          </span>
+        </StackBadge>
       </div>
       <!-- the app led you here: the loaded sweep, once (see the script) -->
       <div

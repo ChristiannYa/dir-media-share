@@ -4,7 +4,9 @@ import AppModeButton from '@/components/AppModeButton.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import NightSky from '@/components/NightSky.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
+import ViewPop from '@/components/ViewPop.vue'
 import { fileUrl, storyboardUrl, thumbUrl } from '@/api'
+import { recordsVideoData } from '@/appMode'
 import { useAutoHide } from '@/composables/useAutoHide'
 import { useContainedInset } from '@/composables/useContainedInset'
 import { onCaptureResume, takeViewerResume, type ViewerResume } from '@/composables/useResume'
@@ -59,7 +61,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   select: [entry: Entry]
-  /** The video started playing, or the photo loaded: it counts as viewed ("last viewed") */
+  /**
+   * A video was watched, or a photo seen, for the "Counts as a view after"
+   * time (Settings → Most played): it counts as viewed ("last viewed", plays)
+   */
   viewed: [entry: Entry]
 }>()
 
@@ -269,12 +274,82 @@ const imageAspect = ref<number | null>(null)
 function onImageLoad(e: Event) {
   const img = e.target as HTMLImageElement
   imageAspect.value = img.naturalWidth && img.naturalHeight ? img.naturalWidth / img.naturalHeight : null
-  if (props.entry) emit('viewed', props.entry)
+  startPhotoView()
 }
 watch(
   () => props.entry?.path,
-  () => (imageAspect.value = null),
+  () => {
+    imageAspect.value = null
+    stopPhotoView()
+  },
 )
+
+// ── Counting a photo's view ──
+// The same rule as a video's (VideoPlayer.vue): a photo counts as viewed (and
+// as "last viewed"), with the "+1" eye, once it has been on screen in the
+// viewer for Settings → Most played → "Counts as a view after" seconds (0 =
+// as soon as it's shown), once per showing. Only time it's really seen adds
+// up: not while the tab is hidden. Dev mode: nothing is counted (src/appMode.ts)
+
+/** Milliseconds the photo has been seen so far, apart from the stretch since `seenSince` */
+let seenMs = 0
+/** When the running stretch of being seen started (performance.now()); null while it isn't running */
+let seenSince: number | null = null
+/** Nothing (more) to count for the photo on screen: counted already, not loaded yet, or dev mode */
+let photoCounted = true
+let photoTimer: ReturnType<typeof setTimeout> | undefined
+
+/** The "+1" eye over the photo (ViewPop.vue): shown once, when the view counts */
+const photoPop = ref(false)
+
+function stopPhotoView() {
+  clearTimeout(photoTimer)
+  seenSince = null
+  photoCounted = true
+  photoPop.value = false
+}
+
+/** The photo has just loaded: its time of being seen starts */
+function startPhotoView() {
+  stopPhotoView()
+  if (!props.entry || !recordsVideoData.value) return
+  photoCounted = false
+  seenMs = 0
+  seenSince = document.hidden ? null : performance.now()
+  schedulePhotoView()
+}
+
+/** Counts the view when the time needed is up (at once if it already is) */
+function schedulePhotoView() {
+  clearTimeout(photoTimer)
+  if (photoCounted || seenSince === null) return
+  const left = settings.viewAfterSeconds * 1000 - seenMs - (performance.now() - seenSince)
+  if (left <= 0) countPhotoView()
+  else photoTimer = setTimeout(countPhotoView, left)
+}
+
+function countPhotoView() {
+  clearTimeout(photoTimer)
+  if (photoCounted || !props.entry) return
+  photoCounted = true
+  // switched to dev mode meanwhile: no view, no "+1"
+  if (!recordsVideoData.value) return
+  emit('viewed', props.entry)
+  photoPop.value = true
+}
+
+/** The tab was hidden or shown again: the time seen stops and starts with it */
+function onVisibilityChange() {
+  if (photoCounted) return
+  if (document.hidden) {
+    if (seenSince !== null) seenMs += performance.now() - seenSince
+    seenSince = null
+    clearTimeout(photoTimer)
+  } else {
+    seenSince = performance.now()
+    schedulePhotoView()
+  }
+}
 
 const inset = useContainedInset(frame, () => {
   const a = imageAspect.value
@@ -436,12 +511,15 @@ onMounted(() => {
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('keydown', onActivity)
   document.addEventListener('fullscreenchange', onFullscreenChange)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 })
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('keydown', onActivity)
   document.removeEventListener('fullscreenchange', onFullscreenChange)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   clearTimeout(settleTimer)
+  clearTimeout(photoTimer)
 })
 </script>
 
@@ -514,6 +592,9 @@ onUnmounted(() => {
           @pointerup="onSwipeEnd"
           @pointercancel="onSwipeCancel"
         />
+        <!-- the photo was seen long enough to count: the "+1" eye over it
+             (inside the photo, past the bands in fullscreen) -->
+        <ViewPop v-if="photoPop && entry.kind === 'image'" @done="photoPop = false" />
         <!-- a photo's buttons, in a row at its bottom-right corner (in
              fullscreen: the screen's) -->
         <div v-if="entry.kind === 'image'" class="photo-buttons">

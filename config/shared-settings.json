@@ -3,7 +3,7 @@
   "mostPlayedCount": 6,
   "viewAfterSeconds": 5,
   "loopVideos": true,
-  "controlsHideDelayMs": 2500,
+  "controlsHideDelayMs": 2000,
   "folderRadius": 0,
   "videoRadius": 0,
   "gridGap": 0,

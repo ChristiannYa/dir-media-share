@@ -4,6 +4,7 @@ import AppModeButton from '@/components/AppModeButton.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import NightSky from '@/components/NightSky.vue'
 import VideoScrubber from '@/components/VideoScrubber.vue'
+import ViewPop from '@/components/ViewPop.vue'
 import { recordsVideoData } from '@/appMode'
 import { useAutoHide } from '@/composables/useAutoHide'
 import { useContainedInset } from '@/composables/useContainedInset'
@@ -12,8 +13,6 @@ import { useHoldSeek } from '@/composables/useHoldSeek'
 import { onCaptureResume, type ViewerResume } from '@/composables/useResume'
 import { useVideoPlayer } from '@/composables/useVideoPlayer'
 import { settings } from '@/settings'
-import { ICON_EYE } from '@/icons'
-import { viewHaptic } from '@/utils/haptics'
 import { formatDuration } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
@@ -148,24 +147,12 @@ function trackWatched() {
   if (watched >= viewThreshold(el.duration)) {
     reportedPlay = true
     emit('played')
-    // somewhere random over the video, clear of its edges and of the controls at the bottom
-    viewPopAt.value = {
-      left: `${15 + Math.random() * 70}%`,
-      top: `${25 + Math.random() * 45}%`,
-      // a playful tilt, never so far that it has to be read sideways
-      '--tilt': `${(Math.random() * 2 - 1) * VIEW_POP_MAX_TILT_DEG}deg`,
-    }
     viewPop.value = true
-    viewHaptic()
   }
 }
 
-/** The "+1" eye rising over the video: shown once, when the view counts */
+/** The "+1" eye rising over the video (ViewPop.vue, with its haptics): shown once, when the view counts */
 const viewPop = ref(false)
-/** Most it's tilted either way (deg): it stays readable without turning the phone */
-const VIEW_POP_MAX_TILT_DEG = 25
-/** Where it appears and how it's tilted (picked each time) */
-const viewPopAt = ref<Record<string, string>>({ left: '50%', top: '55%', '--tilt': '0deg' })
 
 function onTimeUpdate() {
   sync()
@@ -441,29 +428,7 @@ onUnmounted(() => {
 
     <!-- the view just counted: an eye with "+1" pops in, glows, rises and fades;
          inside the player, so it shows in fullscreen too -->
-    <div
-      v-if="viewPop"
-      class="view-pop"
-      :style="viewPopAt"
-      aria-hidden="true"
-      @animationend.self="viewPop = false"
-    >
-      <span class="view-pop-ring" />
-      <span v-for="i in 8" :key="i" class="view-pop-spark" :style="{ '--angle': `${i * 45}deg` }" />
-      <span class="view-pop-badge">
-        <svg viewBox="0 0 24 24">
-          <defs>
-            <linearGradient id="view-pop-gradient" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" style="stop-color: var(--theme-cyan)" />
-              <stop offset="0.5" style="stop-color: var(--theme-blue)" />
-              <stop offset="1" style="stop-color: var(--theme-pink)" />
-            </linearGradient>
-          </defs>
-          <path :d="ICON_EYE" fill="url(#view-pop-gradient)" />
-        </svg>
-        <span class="view-pop-text">+1</span>
-      </span>
-    </div>
+    <ViewPop v-if="viewPop" @done="viewPop = false" />
 
     <video
       ref="video"
@@ -674,156 +639,6 @@ onUnmounted(() => {
   cursor: default;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
-}
-
-/* ── View counted: "+1" eye ──
-   Pops in from a blur somewhere random over the video (left / top set by the
-   script), overshoots, then floats up and fades. A ring in the theme colors
-   swells out from it and sparks fly off as it lands. Small, and never in the
-   way: no pointer events */
-.view-pop {
-  position: absolute;
-  z-index: 6;
-  display: grid;
-  place-items: center;
-  pointer-events: none;
-  animation: view-pop-rise 2s cubic-bezier(0.2, 0.75, 0.25, 1) forwards;
-}
-
-/* tilted by --tilt (random, set by the script); the rise above stays straight up */
-.view-pop-badge {
-  transform: rotate(var(--tilt, 0deg));
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.25rem 0.55rem 0.25rem 0.4rem;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
-  background: rgba(10, 8, 22, 0.45);
-  -webkit-backdrop-filter: blur(8px) saturate(160%);
-  backdrop-filter: blur(8px) saturate(160%);
-  box-shadow:
-    0 0 12px 2px color-mix(in srgb, var(--theme-cyan) 45%, transparent),
-    0 0 26px 6px color-mix(in srgb, var(--theme-purple) 30%, transparent);
-}
-
-.view-pop-badge svg {
-  width: 1.05rem;
-  height: 1.05rem;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--theme-cyan) 80%, transparent));
-}
-
-.view-pop-text {
-  font-size: 0.75rem;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  background: linear-gradient(90deg, var(--theme-cyan), var(--theme-blue), var(--theme-pink));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-/* a ring in the theme colors swelling out from the badge as it lands */
-.view-pop-ring {
-  position: absolute;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, var(--theme-cyan) 85%, transparent);
-  box-shadow: 0 0 10px color-mix(in srgb, var(--theme-blue) 70%, transparent);
-  opacity: 0;
-  animation: view-pop-ring 0.9s ease-out 0.2s forwards;
-}
-
-/* little sparks flying off all around */
-.view-pop-spark {
-  position: absolute;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--theme-cyan) 80%, transparent);
-  opacity: 0;
-  animation: view-pop-spark 0.8s ease-out 0.22s forwards;
-}
-
-.view-pop-spark:nth-child(odd) {
-  box-shadow: 0 0 5px 1px color-mix(in srgb, var(--theme-pink) 80%, transparent);
-}
-
-@keyframes view-pop-rise {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -20%) scale(0.5);
-    filter: blur(8px);
-  }
-  14% {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1.15);
-    filter: blur(0);
-  }
-  24% {
-    transform: translate(-50%, -50%) scale(0.97);
-  }
-  32% {
-    transform: translate(-50%, -52%) scale(1);
-  }
-  72% {
-    opacity: 1;
-    transform: translate(-50%, -120%) scale(1);
-    filter: blur(0);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(-50%, -170%) scale(0.92);
-    filter: blur(4px);
-  }
-}
-
-@keyframes view-pop-ring {
-  0% {
-    opacity: 0.9;
-    transform: scale(0.8);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(2.6);
-  }
-}
-
-@keyframes view-pop-spark {
-  0% {
-    opacity: 1;
-    transform: rotate(var(--angle)) translateX(0.5rem) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: rotate(var(--angle)) translateX(2.2rem) scale(0.3);
-  }
-}
-
-/* reduced motion: it just fades in and out where it is */
-@media (prefers-reduced-motion: reduce) {
-  .view-pop {
-    transform: translate(-50%, -50%);
-    animation: view-pop-fade 1.6s ease-in-out forwards;
-  }
-
-  .view-pop-ring,
-  .view-pop-spark {
-    display: none;
-  }
-}
-
-@keyframes view-pop-fade {
-  0%,
-  100% {
-    opacity: 0;
-  }
-  20%,
-  70% {
-    opacity: 1;
-  }
 }
 
 /* fills the box, scaled to fit with its own shape kept */

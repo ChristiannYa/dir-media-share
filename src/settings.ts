@@ -169,7 +169,7 @@ export const SETTING_GROUPS: Array<FieldGroup<SettingField>> = [
       {
         key: 'mostPlayedCount',
         label: 'Items shown',
-        help: 'A section above the grid. In the folders inside .bin (e.g. .bin/cinema): their most played folders, by the plays of everything inside added up. In the folders inside those (e.g. .bin/cinema/annaralphs): their most played videos and photos (subfolders included); tapping one takes you to its card. A play counts when a video starts playing in the viewer, or a photo is shown there, on any device. 0 = no section',
+        help: 'A section above the grid. In the folders inside .bin (e.g. .bin/cinema): their most played folders, by the plays of everything inside added up. In the folders inside those (e.g. .bin/cinema/annaralphs): their most played videos and photos (subfolders included); tapping one takes you to its card. A play counts when a video was watched, or a photo seen, in the viewer for the "Counts as a view after" time below, on any device. 0 = no section',
         type: 'number',
         min: 0,
         max: 100,
@@ -187,7 +187,7 @@ export const SETTING_GROUPS: Array<FieldGroup<SettingField>> = [
       {
         key: 'viewAfterSeconds',
         label: 'Counts as a view after',
-        help: 'Seconds of a video you have to watch in the viewer or fullscreen before it counts as a view (and as "last viewed"), once per opening. Paused time, skipping and fast seeking don\'t add up. A shorter video counts once 90% of it was watched. Photos count when shown. 0 = as soon as it starts playing',
+        help: 'Seconds of a video you have to watch in the viewer or fullscreen before it counts as a view (and as "last viewed"), once per opening. Paused time, skipping and fast seeking don\'t add up. A shorter video counts once 90% of it was watched. A photo counts once it has been shown in the viewer that long (time with the tab hidden doesn\'t add up). 0 = as soon as a video starts playing or a photo is shown',
         type: 'number',
         min: 0,
         max: 600,
