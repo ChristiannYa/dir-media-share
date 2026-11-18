@@ -18,6 +18,10 @@
      transparent). Taken from inside the card, so a bigger value shrinks the
      media. For a thicker ring use --ring-width instead. */
   --card-border: 1px;
+  /* How much taller than their picture folder and video previews are, on top
+     of the folder's name band (Settings → Look → Preview extra height;
+     GalleryCard.vue). The name band keeps its size */
+  --folder-extra-h: 2.2rem;
 
   /* Thickness of the faint ring around image and video cards (styles/ring.css).
      Drawn on the card's inside edge, over the media, so the grid's spacing

@@ -250,7 +250,7 @@ onMounted(() => {
 onUnmounted(() => sizeObserver.disconnect())
 // a new gap (Settings) doesn't resize the card itself: measure again
 watch(
-  () => [settings.gridGap, settings.folderGap, settings.topFolderGap],
+  () => [settings.gridGap, settings.folderGap, settings.topFolderGap, settings.previewExtraHeight],
   () => nextTick(measureSpan),
 )
 
@@ -1153,12 +1153,12 @@ watch(
    (.force-glass on it: blurred even with Glass effect off) and a light dark
    layer, so it reads on any picture. --folder-name-h is the band's height (it
    fits the name: leave it); --folder-extra-h is how much taller than a square
-   the preview is, on top of the band (.with-name below): raise it for a taller
-   folder, the name stays the same size */
+   the preview is, on top of the band (.with-name below): tokens.css, set by
+   Settings → Look → Preview extra height (on every device). The name stays
+   the same size */
 .card.folder,
 .card.video {
   --folder-name-h: 2.8rem;
-  --folder-extra-h: 2.2rem;
   --folder-grow: calc(var(--folder-name-h) + var(--folder-extra-h));
 }
 

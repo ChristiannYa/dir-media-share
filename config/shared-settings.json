@@ -9,6 +9,7 @@
   "gridGap": 0,
   "folderGap": 0,
   "cardBorder": 0,
+  "previewExtraHeight": 2.4,
   "ringWidth": 2,
   "cardGlassWidth": 0,
   "ringVibrancy": 3,
