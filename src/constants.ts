@@ -407,7 +407,7 @@ export const MOST_PLAYED_COUNT = 10
 /** Title of that section */
 export const MOST_PLAYED_TITLE = 'Most viewed'
 /** Shown in that section while nothing in the folder was played yet */
-export const MOST_PLAYED_EMPTY_TEXT = 'Nothing played here yet'
+export const MOST_PLAYED_EMPTY_TEXT = 'Nothing viewed here...yet'
 /**
  * How many hearted videos / photos the "Hearted" section (under "Most
  * played", only where it lists videos and photos: .bin/<x>/<y>) shows (default; see Settings → Most played).
@@ -421,7 +421,7 @@ export const HEARTED_SWAP_MS = 5000
 /** Title of that section */
 export const HEARTED_TITLE = 'Mos loved'
 /** Shown in that section while nothing in the folder is hearted */
-export const HEARTED_EMPTY_TEXT = 'Nothing hearted here yet'
+export const HEARTED_EMPTY_TEXT = 'No love shown here...yet'
 /**
  * Seconds of a video that have to be watched in the viewer (or fullscreen)
  * before it counts as a view and as "last viewed" (default; see Settings →
