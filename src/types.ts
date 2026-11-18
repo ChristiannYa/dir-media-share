@@ -28,6 +28,8 @@ export interface Entry {
   last_viewed?: number | null
   /** files only: marked with the heart (shared by every device) */
   favorite?: boolean
+  /** folders only: hearted videos and photos inside, including subfolders */
+  favorite_count?: number | null
   /**
    * videos and photos: how many times it was played / shown in the viewer;
    * folders: those of everything inside added up (shared by every device)

@@ -41,6 +41,8 @@ export interface Entry {
   last_viewed: number | null
   /** Files only: marked with the heart (server/favorites.ts) */
   favorite: boolean
+  /** Folders only: hearted videos and photos inside it, including subfolders */
+  favorite_count: number | null
   /**
    * Videos and photos: how many times it was played / shown in the viewer
    * (server/plays.ts). Folders: those of everything inside them added up

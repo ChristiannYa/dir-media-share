@@ -305,9 +305,13 @@ const columnStyle = computed(() =>
  * everything inside it), for the top bar
  */
 const folderStats = computed(() => {
-  const stats = { videos: 0, images: 0, folders: 0, size: 0 }
+  // hearts and views count everything inside, subfolders included (like the
+  // size); views is null where the server doesn't record them (dev mode)
+  const stats = { videos: 0, images: 0, folders: 0, size: 0, hearts: 0, views: null as number | null }
   for (const e of entries.value) {
     stats.size += e.size ?? 0
+    stats.hearts += e.kind === 'folder' ? (e.favorite_count ?? 0) : e.favorite ? 1 : 0
+    if (e.plays != null) stats.views = (stats.views ?? 0) + e.plays
     if (e.kind === 'video') stats.videos++
     else if (e.kind === 'image') stats.images++
     else if (e.kind === 'folder') stats.folders++

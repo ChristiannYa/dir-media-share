@@ -9,6 +9,7 @@ import { useContextHold } from '@/composables/useContextHold'
 import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
+import { ICON_EYE, ICON_HEART } from '@/icons'
 import { formatSize } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
@@ -16,7 +17,16 @@ const props = defineProps<{
   rootName: string
   crumbs: Crumb[]
   /** What the open folder holds directly, and its total size, shown on the third row */
-  stats: { videos: number; images: number; folders: number; size: number }
+  stats: {
+    videos: number
+    images: number
+    folders: number
+    size: number
+    /** hearted videos and photos inside, subfolders included */
+    hearts: number
+    /** total views of everything inside; null where they aren't recorded */
+    views: number | null
+  }
   /** The folder's first letters and the one you're at, for the fourth row (null: the page doesn't scroll) */
   alphabet: { letters: string[]; current: string } | null
 }>()
@@ -35,6 +45,9 @@ const emit = defineEmits<{
    */
   letter: [letter: string, smooth: boolean]
 }>()
+
+/** Hearts and views aren't shown in .lock itself or the folders directly in it (.bin, src): only deeper (.bin/cinema…) */
+const holdsMedia = computed(() => props.crumbs.length >= 2)
 
 /** The open folder (last crumb); null at the top level */
 const current = computed(() => props.crumbs.at(-1) ?? null)
@@ -355,6 +368,23 @@ onUnmounted(() => clearTimeout(settleTimer))
           <path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z" />
         </svg>
         {{ stats.folders }}
+      </span>
+      <!-- only what the folder has, and not in .lock, .bin or src (holdsMedia) -->
+      <span
+        v-if="holdsMedia && stats.hearts > 0"
+        class="stat"
+        title="Hearted videos and photos, subfolders included"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_HEART" /></svg>
+        {{ stats.hearts }}
+      </span>
+      <span
+        v-if="holdsMedia && stats.views"
+        class="stat"
+        title="Total views, subfolders included"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+        {{ stats.views }}
       </span>
       <span v-if="stats.size" class="stat" title="Total size, subfolders included">
         <!-- hard drive -->
