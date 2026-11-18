@@ -5,7 +5,6 @@ import AppModeImage from '@/components/AppModeImage.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
-import { useContextHold } from '@/composables/useContextHold'
 import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
@@ -52,14 +51,13 @@ const holdsMedia = computed(() => props.crumbs.length >= 2)
 /** The open folder (last crumb); null at the top level */
 const current = computed(() => props.crumbs.at(-1) ?? null)
 
-// The open folder's menu has no button: right-click or press-and-hold its name
-// (the last crumb) opens it, like on folder cards
+// The open folder's menu has no button: clicking its name (the last crumb)
+// opens it. Right-click / hold is for the folder cards in the grid only
 const folderMenu = ref<InstanceType<typeof FolderMenu> | null>(null)
-const hold = useContextHold(() => folderMenu.value?.open())
 
 function onCrumbClick(crumb: { path: string }, last: boolean) {
-  if (last && hold.consumeClick()) return // the press opened the menu
-  emit('navigate', crumb.path)
+  if (last) folderMenu.value?.open()
+  else emit('navigate', crumb.path)
 }
 
 // slides away while scrolling down, back while scrolling up; scrolling doesn't
@@ -333,12 +331,11 @@ onUnmounted(() => clearTimeout(settleTimer))
       <span class="crumb crumb-home" @click="emit('navigate', '')">{{ rootName }}</span>
       <template v-for="(crumb, i) in crumbs" :key="i">
         <span class="crumb-sep">/</span>
-        <!-- the open folder's name: right-click / hold opens its menu -->
+        <!-- the open folder's name: a click opens its menu -->
         <span
           class="crumb"
           :class="{ 'crumb-current': i === crumbs.length - 1 }"
-          :title="i === crumbs.length - 1 ? 'Right-click or hold for folder actions' : undefined"
-          v-on="i === crumbs.length - 1 ? hold.listeners : {}"
+          :title="i === crumbs.length - 1 ? 'Folder actions' : undefined"
           @click="onCrumbClick(crumb, i === crumbs.length - 1)"
           >{{ crumb.name }}</span
         >
@@ -640,11 +637,6 @@ onUnmounted(() => clearTimeout(settleTimer))
   /* a space on each side of the slash */
   padding: 0 0.4em;
   user-select: none;
-}
-
-/* hold opens the folder menu: no iOS callout instead */
-.crumb-current {
-  -webkit-touch-callout: none;
 }
 
 /* the lock countdown, first on the left, in the buttons' color */
