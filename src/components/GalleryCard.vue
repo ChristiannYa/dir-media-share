@@ -25,7 +25,8 @@ import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
 import type { Entry } from '@/types'
-import { isMediaEntry } from '@/utils/entry'
+import { compressedOriginalPath, isMediaEntry } from '@/utils/entry'
+import { revealInGallery } from '@/composables/useGallery'
 import { hasPlayed } from '@/utils/firstPlays'
 import { formatDuration, formatQuality, formatSize } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
@@ -117,6 +118,16 @@ const rowEl = ref<HTMLElement | null>(null)
 const stackState = createBadgeStackState()
 provide(BADGE_TARGETS_KEY, { stack: stackEl, row: rowEl })
 provide(BADGE_STACK_STATE_KEY, stackState)
+
+/** A compressed copy's original (its path, from the copy's name), for the "Compressed!" badge to lead to; null if unknown */
+const compressedOriginal = computed(() => compressedOriginalPath(props.entry))
+
+/** The "Compressed!" badge was tapped: goes to the original's card (its folder opens first if needed) */
+function showOriginal() {
+  if (!compressedOriginal.value) return
+  haptic('tap')
+  void revealInGallery(compressedOriginal.value)
+}
 
 /** "1 view", "12 views" */
 function playsLabel(n: number): string {
@@ -648,7 +659,19 @@ watch(
       <!-- top-left: a compressed copy not opened yet -->
       <div ref="stackEl" class="badge-stack">
         <StackBadge badge="compressed" :show="showCompressedBanner">
-          <span class="info-badge compressed-badge">Compressed!</span>
+          <!-- a tap leads to the original it was made from (when its name still
+               says which: compressedOriginalPath); a button, so it doesn't open
+               the card or its menu -->
+          <component
+            :is="compressedOriginal ? 'button' : 'span'"
+            :type="compressedOriginal ? 'button' : undefined"
+            class="info-badge compressed-badge"
+            :class="{ 'compressed-link': compressedOriginal }"
+            :title="compressedOriginal ? 'Show the original' : undefined"
+            @click.stop="showOriginal"
+          >
+            Compressed!
+          </component>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
         <!-- how many times it was shown in the viewer, like a video's (in the
@@ -784,7 +807,19 @@ watch(
            or the row by its kind, wherever it's written -->
       <div ref="stackEl" class="badge-stack">
         <StackBadge badge="compressed" :show="showCompressedBanner">
-          <span class="info-badge compressed-badge">Compressed!</span>
+          <!-- a tap leads to the original it was made from (when its name still
+               says which: compressedOriginalPath); a button, so it doesn't open
+               the card or its menu -->
+          <component
+            :is="compressedOriginal ? 'button' : 'span'"
+            :type="compressedOriginal ? 'button' : undefined"
+            class="info-badge compressed-badge"
+            :class="{ 'compressed-link': compressedOriginal }"
+            :title="compressedOriginal ? 'Show the original' : undefined"
+            @click.stop="showOriginal"
+          >
+            Compressed!
+          </component>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
         <StackBadge
@@ -1629,6 +1664,25 @@ watch(
   color: #fff;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+/* the one that leads to the original: a button, so it takes taps (the stack
+   itself lets them through to the card) */
+.compressed-link {
+  font-family: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: filter 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.compressed-link:hover {
+  filter: brightness(1.25);
+}
+
+.compressed-link:active {
+  filter: brightness(0.9);
 }
 
 /* the "Most played" section: just the views, nothing else on the preview, so

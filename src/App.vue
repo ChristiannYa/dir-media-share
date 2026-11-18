@@ -462,12 +462,13 @@ function open(entry: Entry) {
 async function openFromMostPlayed(entry: Entry) {
   haptic('tap')
   const folder = entry.path.split('/').slice(0, -1).join('/')
-  if (folder !== currentPath.value) {
+  const navigated = folder !== currentPath.value
+  if (navigated) {
     picked.clear()
     await navigate(folder)
   }
   await nextTick()
-  await revealCard(entry.path)
+  await revealCard(entry.path, navigated)
 }
 
 /** Longest the smooth scroll to a revealed card is waited for (no scroll needed: no scrollend) */
@@ -497,9 +498,12 @@ const REVEAL_STILL_FRAMES = 3
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 
-/** The grid's card of `path` (not its copy in the "Most played" section), once drawn; null if it never is */
+/** Selects the grid's card of `path` (not its copy in the "Most played" section) */
+const cardSelector = (path: string) => `.main-grid > .card[data-path="${CSS.escape(path)}"]`
+
+/** The grid's card of `path`, once drawn; null if it never is */
 async function findCard(path: string): Promise<HTMLElement | null> {
-  const selector = `.main-grid > .card[data-path="${CSS.escape(path)}"]`
+  const selector = cardSelector(path)
   const until = performance.now() + REVEAL_LAYOUT_WAIT_MS
   for (;;) {
     const card = document.querySelector<HTMLElement>(selector)
@@ -531,15 +535,17 @@ let revealRun = 0
 /**
  * Scrolls the grid's card of `path` into the middle of the screen and, once
  * it's there, has it play the same sweep as a preview that just loaded
- * (GalleryCard.vue, the `revealing` watcher). Waits for the card to be drawn
- * and placed first; if it moved while scrolling (pictures above it loaded),
- * it's brought back to the middle. False if the grid has no such card
+ * (GalleryCard.vue, the `revealing` watcher). In a folder just opened
+ * (`afterNavigation`) it waits for the card to be drawn and placed first,
+ * since the grid is still laying out; in one that's been on screen it goes
+ * at once. If it moved while scrolling (pictures above it loaded), it's
+ * brought back to the middle. False if the grid has no such card
  */
-async function revealCard(path: string): Promise<boolean> {
+async function revealCard(path: string, afterNavigation = true): Promise<boolean> {
   const run = ++revealRun
   const card = await findCard(path)
   if (!card || run !== revealRun) return false
-  await cardPlaced(card)
+  if (afterNavigation) await cardPlaced(card)
   if (run !== revealRun || !card.isConnected) return false
   card.scrollIntoView({ behavior: 'smooth', block: 'center' })
   await scrollSettled(REVEAL_SCROLL_WAIT_MS)
@@ -630,15 +636,20 @@ provide(RELOAD_GALLERY_KEY, async () => {
 // show where it is in the grid (`openFolder`: its folder opens first)
 async function revealEntry(path: string, openFolder = false) {
   const folder = path.split('/').slice(0, -1).join('/')
+  /** A new folder's listing is still laying out: its cards get measured after they're drawn */
+  let navigated = false
   if (openFolder && folder !== currentPath.value) {
     picked.clear()
     if (selecting.value) toggleSelecting()
     await navigate(folder) // lists the folder it opens
-  } else {
+    navigated = true
+  } else if (!document.querySelector(cardSelector(path))) {
+    // its card isn't in the grid yet (a file or folder that was just made): list again.
+    // Already there: no need, which saves a trip to the server (it probes every video again)
     await reload()
   }
   await nextTick()
-  await revealCard(path) // not there if it was made inside a subfolder: nothing to show
+  await revealCard(path, navigated) // not there if it was made inside a subfolder: nothing to show
 }
 provide(REVEAL_ENTRY_KEY, revealEntry)
 // the same for code outside these components (the compress popup)
