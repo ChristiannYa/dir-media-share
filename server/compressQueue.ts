@@ -4,6 +4,11 @@
 // going to sleep, another device. Videos go one after another, photos on
 // their own line beside them.
 //
+// The edit dialog's trimmed / cropped copies are made by it too
+// (./media/editMedia.ts; `action: 'edit'`), on the same two lines, so an
+// edit and a compression never encode at once. Everything below applies to
+// them the same way: saved, resumed, stopped, discarded, cleared.
+//
 // Every open page hears each change on the job events stream
 // (`event: compress`, server/handlers/jobEvents.ts) and can ask for the whole
 // list (GET ROUTE_COMPRESS_JOBS). Ended jobs stay listed, with their outcome,
@@ -32,13 +37,24 @@ import { mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { markCompressedNew, setCompressedSeen } from './compressedNew.ts'
 import { COMPRESS_QUEUE_FILE } from './consts/server.ts'
+import { hideCopy, unhideCopy } from './hiddenCopies.ts'
 import { keepAwake, touchActivity } from './idle.ts'
 import { emitCompress } from './jobEvents.ts'
 import { isVideoName } from './listing.ts'
-import { CompressError, compressVideo, discardCompressed } from './media/compress.ts'
+import {
+  CompressError,
+  compressVideo,
+  discardCompressed,
+  type CompressHooks,
+} from './media/compress.ts'
 import { compressImage, isCompressibleImageName } from './media/compressImage.ts'
+import { MIN_LENGTH, type VideoEdit } from './media/edit.ts'
+import { editMedia, isEditableName } from './media/editMedia.ts'
 import { resolveDir, resolveFile } from './paths.ts'
 import { onShutdown } from './shutdown.ts'
+
+/** What a job makes: a compressed copy, or (the edit dialog) a trimmed / cropped one */
+export type CompressAction = 'compress' | 'edit'
 
 export type CompressJobState =
   /** In line: another compression is running */
@@ -56,13 +72,25 @@ export type CompressJobState =
 
 export interface CompressJob {
   id: string
+  action: CompressAction
+  /** The edit to make (edits only): the part of the video kept, the crop */
+  edit: VideoEdit | null
+  /**
+   * Edits only: the edited copy is compressed too, right after, in the same
+   * job; `before` / `after` are then the edited copy's size and the compressed
+   * one's, and only the compressed one is kept
+   */
+  compressAfter: boolean
   /** The original, inside the shared folder (as the listing shows it) */
   path: string
   name: string
   /** Its folder inside the shared folder ('' = the shared folder itself) */
   folder: string
   kind: 'video' | 'image'
-  /** Seconds of video (from the listing, for the time left); null if unknown */
+  /**
+   * Seconds of video encoded (from the listing, or the part an edit keeps),
+   * for the time left; null if unknown
+   */
   duration: number | null
   state: CompressJobState
   /** 0–1 encoded (videos) */
@@ -121,8 +149,8 @@ state.shuttingDown ??= false
 const MAX_ENDED = 500
 /** A job's progress is announced at most this often */
 const PROGRESS_EVERY_MS = 500
-/** The hidden file an encode writes to before it gets its name (./media/compress.ts, compressImage.ts) */
-const LEFTOVER = /^\.[0-9a-f-]{36}\.med-compress/
+/** The hidden file an encode writes to before it gets its name (./media/compress.ts, compressImage.ts, edit.ts…) */
+const LEFTOVER = /^\.[0-9a-f-]{36}\.med-(compress|edit)/
 
 export function isActive(job: CompressJob): boolean {
   return job.state === 'waiting' || job.state === 'compressing'
@@ -130,7 +158,19 @@ export function isActive(job: CompressJob): boolean {
 
 // ── Saving ──
 
-function isJob(value: unknown): value is CompressJob {
+/** A whole edit: every number there, and finite */
+function isEdit(value: unknown): value is VideoEdit {
+  if (!value || typeof value !== 'object') return false
+  const e = value as Record<string, unknown>
+  return (['start', 'end', 'x', 'y', 'w', 'h'] as const).every(
+    (key) => typeof e[key] === 'number' && Number.isFinite(e[key]),
+  )
+}
+
+/** A saved job (lists saved before edits were queued have no `action`: compressions) */
+function isJob(
+  value: unknown,
+): value is Partial<CompressJob> & Omit<CompressJob, 'action' | 'edit' | 'compressAfter'> {
   const j = value as Partial<CompressJob> | null
   return (
     !!j &&
@@ -140,7 +180,8 @@ function isJob(value: unknown): value is CompressJob {
     typeof j.folder === 'string' &&
     (j.kind === 'video' || j.kind === 'image') &&
     typeof j.state === 'string' &&
-    typeof j.queuedAt === 'number'
+    typeof j.queuedAt === 'number' &&
+    (j.action === undefined || j.action === 'compress' || (j.action === 'edit' && isEdit(j.edit)))
   )
 }
 
@@ -150,7 +191,17 @@ function loadJobs(): Map<string, CompressJob> {
   try {
     const saved: unknown = JSON.parse(readFileSync(COMPRESS_QUEUE_FILE, 'utf8'))
     if (Array.isArray(saved)) {
-      for (const job of saved) if (isJob(job)) jobs.set(job.id, { ...job, speed: null })
+      for (const job of saved) {
+        if (!isJob(job)) continue
+        const action = job.action ?? 'compress'
+        jobs.set(job.id, {
+          ...job,
+          action,
+          edit: action === 'edit' ? job.edit! : null,
+          compressAfter: action === 'edit' && job.compressAfter === true,
+          speed: null,
+        })
+      }
     }
   } catch {
     // no file yet
@@ -220,6 +271,9 @@ function prune() {
 /** Ends a job (once: a job stopped while waiting has already ended). Not while stopping */
 function end(job: CompressJob, changes: Partial<CompressJob>) {
   if (job.endedAt !== null || state.shuttingDown) return
+  // an edited copy kept out of the listings while it was compressed: it's the
+  // result (it wouldn't compress, or the job failed) or gone, so it shows again
+  if (job.action === 'edit') unhideCopy(job.copyPath)
   Object.assign(job, changes, { endedAt: Date.now(), speed: null })
   touchActivity()
   announce(job)
@@ -249,74 +303,230 @@ export async function enqueueCompress(
       refused.push({ path: rel, error: 'Only videos and photos can be compressed' })
       continue
     }
-    if (compressJobs().some((j) => j.path === rel && isActive(j))) {
+    if (compressJobs().some((j) => j.action === 'compress' && j.path === rel && isActive(j))) {
       refused.push({ path: rel, error: 'It is already in the queue' })
       continue
     }
-    const folder = path.posix.dirname(rel)
     const duration = Number(request.duration)
-    const job: CompressJob = {
-      id: randomUUID(),
-      path: rel,
-      name,
-      folder: folder === '.' ? '' : folder,
-      kind: isImage ? 'image' : 'video',
-      duration: !isImage && Number.isFinite(duration) && duration > 0 ? duration : null,
-      state: 'waiting',
-      fraction: 0,
-      speed: null,
-      before: null,
-      after: null,
-      copyPath: null,
-      copyName: null,
-      note: '',
-      queuedAt: Date.now(),
-      endedAt: null,
-    }
-    state.jobs.set(job.id, job)
+    const job = newJob(rel, 'compress', isImage ? 'image' : 'video', null, duration)
     queued.push(job)
-    announce(job)
-    void run(job, file)
+    start(job, file)
   }
   prune()
   if (queued.length) save()
   return { queued, refused }
 }
 
+/**
+ * Adds an edited copy of `rel` to make (the edit dialog's trim / crop), which
+ * starts as soon as its line is free. The same file can be in the queue
+ * several times, each with its own edit. With `compressAfter`, the edited
+ * copy is compressed too, in the same job. Throws a CompressError saying why
+ * it can't be.
+ */
+export async function enqueueEdit(
+  rel: string,
+  edit: unknown,
+  compressAfter = false,
+): Promise<CompressJob> {
+  if (!isEdit(edit)) throw new CompressError('Invalid edit')
+  const file = await resolveFile(rel)
+  if (!file) throw new CompressError('File not found')
+  const name = path.posix.basename(rel)
+  if (!isEditableName(name)) throw new CompressError('Only videos and photos can be edited')
+  const isVideo = isVideoName(name)
+  if (isVideo && edit.end - edit.start < MIN_LENGTH) {
+    throw new CompressError('The part to keep is too short')
+  }
+  // only the edit's own numbers are kept (and saved); photos have nothing to trim
+  const { x, y, w, h } = edit
+  const kept: VideoEdit = isVideo
+    ? { start: edit.start, end: edit.end, x, y, w, h }
+    : { start: 0, end: 0, x, y, w, h }
+  const job = newJob(
+    rel,
+    'edit',
+    isVideo ? 'video' : 'image',
+    kept,
+    kept.end - kept.start,
+    compressAfter,
+  )
+  start(job, file)
+  prune()
+  save()
+  return job
+}
+
+/** A new job, waiting; `duration`: seconds of video it encodes (anything else: unknown) */
+function newJob(
+  rel: string,
+  action: CompressAction,
+  kind: CompressJob['kind'],
+  edit: VideoEdit | null,
+  duration: number,
+  compressAfter = false,
+): CompressJob {
+  const folder = path.posix.dirname(rel)
+  return {
+    id: randomUUID(),
+    action,
+    edit,
+    compressAfter,
+    path: rel,
+    name: path.posix.basename(rel),
+    folder: folder === '.' ? '' : folder,
+    kind,
+    duration: kind === 'video' && Number.isFinite(duration) && duration > 0 ? duration : null,
+    state: 'waiting',
+    fraction: 0,
+    speed: null,
+    before: null,
+    after: null,
+    copyPath: null,
+    copyName: null,
+    note: '',
+    queuedAt: Date.now(),
+    endedAt: null,
+  }
+}
+
+/** Lists a new job and gets it in line */
+function start(job: CompressJob, file: string) {
+  state.jobs.set(job.id, job)
+  announce(job)
+  void run(job, file)
+}
+
+/** The hooks of one of a job's two steps (edit, then compress): its progress fills `from` to `from + 0.5` */
+function halfOf(hooks: CompressHooks, from: number): CompressHooks {
+  return {
+    ...hooks,
+    onProgress: (p) => hooks.onProgress({ ...p, fraction: from + p.fraction / 2 }),
+  }
+}
+
+/** Deletes the edited copy an edit + compress job made on the way (the compressed one replaced it, or it was stopped) */
+async function dropEditedStep(job: CompressJob) {
+  if (!job.copyPath) return
+  const edited = await resolveFile(job.copyPath)
+  // the job vouches for when it was made (also across a restart)
+  if (edited) await discardCompressed(edited, job.queuedAt).catch(() => false)
+}
+
 async function run(job: CompressJob, file: string) {
   const controller = new AbortController()
   state.controllers.set(job.id, controller)
   let lastAnnounced = 0
+  const hooks: CompressHooks = {
+    signal: controller.signal,
+    onStart: () => {
+      job.state = 'compressing'
+      announce(job)
+      save()
+    },
+    onProgress: (p) => {
+      job.fraction = p.fraction
+      job.speed = p.speed
+      const now = Date.now()
+      if (now - lastAnnounced < PROGRESS_EVERY_MS) return
+      lastAnnounced = now
+      announce(job)
+    },
+  }
+  /** A copy was saved: it gets the "new" banner (by the path the listing shows: the original's folder as it was asked for) */
+  const saved = async (name: string) => {
+    const copyPath = job.folder ? `${job.folder}/${name}` : name
+    await markCompressedNew(copyPath).catch((e) =>
+      console.error('Saving the new compressed copies failed:', e),
+    )
+    return copyPath
+  }
   try {
-    const result = await (job.kind === 'image' ? compressImage : compressVideo)(file, {
-      signal: controller.signal,
-      onStart: () => {
-        job.state = 'compressing'
+    if (job.action === 'edit' && job.edit) {
+      // made already (the server stopped while it was being compressed): not again
+      let edited = job.compressAfter && job.copyPath ? await resolveFile(job.copyPath) : null
+      if (edited) {
+        job.fraction = 0.5
+        // after a restart: the edited copy stays out of the gallery until the compression ends
+        hideCopy(job.copyPath!)
+      } else {
+        // an edit that is compressed next: its edited copy is kept out of the
+        // listings from the moment the file exists (its name is held before it's
+        // linked), so the gallery never shows the step in between
+        const hold = job.compressAfter
+          ? (name: string, held: boolean) => {
+              const rel = job.folder ? `${job.folder}/${name}` : name
+              if (held) hideCopy(rel)
+              else unhideCopy(rel)
+            }
+          : undefined
+        const made = await editMedia(
+          file,
+          job.edit,
+          job.compressAfter ? halfOf(hooks, 0) : hooks,
+          hold,
+        )
+        if (job.endedAt !== null || state.shuttingDown) return
+        if (!job.compressAfter) {
+          end(job, {
+            state: 'done',
+            fraction: 1,
+            copyPath: await saved(made.name),
+            copyName: made.name,
+            note: `Saved as ${made.name}`,
+          })
+          return
+        }
+        // saved, so a restart goes on from the compression
+        job.copyPath = job.folder ? `${job.folder}/${made.name}` : made.name
+        job.copyName = made.name
+        // half done (photos report no progress of their own)
+        job.fraction = 0.5
         announce(job)
         save()
-      },
-      onProgress: (p) => {
-        job.fraction = p.fraction
-        job.speed = p.speed
-        const now = Date.now()
-        if (now - lastAnnounced < PROGRESS_EVERY_MS) return
-        lastAnnounced = now
-        announce(job)
-      },
-    })
+        edited = await resolveFile(job.copyPath)
+        if (!edited) throw new CompressError('The edited copy is gone (moved or deleted)')
+      }
+      const result = await (job.kind === 'image' ? compressImage : compressVideo)(
+        edited,
+        halfOf(hooks, 0.5),
+      )
+      if (job.endedAt !== null || state.shuttingDown) return
+      if (result.compressed && result.name) {
+        // only the compressed one is kept: the edited copy was a step towards it
+        await dropEditedStep(job)
+        end(job, {
+          state: 'done',
+          fraction: 1,
+          before: result.before,
+          after: result.after,
+          copyPath: await saved(result.name),
+          copyName: result.name,
+          note: `Edited and compressed: saved as ${result.name}`,
+        })
+      } else {
+        // it wouldn't get smaller: the edited copy is the result
+        const name = job.copyName ?? path.posix.basename(job.copyPath ?? '')
+        end(job, {
+          state: 'done',
+          fraction: 1,
+          before: result.before,
+          copyPath: await saved(name),
+          copyName: name,
+          note: `Saved as ${name}, not compressed: ${result.note ?? 'it would hardly get smaller'}`,
+        })
+      }
+      return
+    }
+    const result = await (job.kind === 'image' ? compressImage : compressVideo)(file, hooks)
     if (job.endedAt !== null || state.shuttingDown) return
     if (result.compressed && result.name) {
-      // by the path the listing shows (the original's folder as it was asked for)
-      const copyPath = job.folder ? `${job.folder}/${result.name}` : result.name
-      await markCompressedNew(copyPath).catch((e) =>
-        console.error('Saving the new compressed copies failed:', e),
-      )
       end(job, {
         state: 'done',
         fraction: 1,
         before: result.before,
         after: result.after,
-        copyPath,
+        copyPath: await saved(result.name),
         copyName: result.name,
         note: `Saved as ${result.name}`,
       })
@@ -331,12 +541,17 @@ async function run(job: CompressJob, file: string) {
     }
   } catch (e) {
     if (controller.signal.aborted) {
-      end(job, { state: 'cancelled' })
+      // stopped between the two steps (or during the second): the edited copy isn't kept either
+      if (job.action === 'edit' && job.compressAfter && !state.shuttingDown) {
+        await dropEditedStep(job)
+      }
+      end(job, { state: 'cancelled', copyPath: null, copyName: null })
     } else {
-      if (!(e instanceof CompressError)) console.error(`Compressing ${file} failed:`, e)
+      const what = job.action === 'edit' ? 'edited' : 'compressed'
+      if (!(e instanceof CompressError)) console.error(`${file} could not be ${what}:`, e)
       end(job, {
         state: 'failed',
-        note: e instanceof CompressError ? e.message : 'It could not be compressed',
+        note: e instanceof CompressError ? e.message : `It could not be ${what}`,
       })
     }
   } finally {
@@ -438,14 +653,14 @@ export function jobIdsIn(folder?: string): string[] {
 export async function discardCompressJob(id: string): Promise<CompressJob> {
   const job = state.jobs.get(id)
   if (!job || job.state !== 'done' || !job.copyPath) {
-    throw new CompressError('Only copies that were just compressed can be discarded')
+    throw new CompressError('Only copies that were just compressed or edited can be discarded')
   }
   const file = await resolveFile(job.copyPath)
   if (!file) throw new CompressError('The copy is gone already (moved or deleted)')
   // the job itself is the proof this file is a copy it saved (and when)
   if (!(await discardCompressed(file, job.endedAt ?? undefined))) {
     throw new CompressError(
-      'Only copies compressed in the last day can be discarded here: move it to the trash instead',
+      'Only copies made in the last day can be discarded here: move it to the trash instead',
     )
   }
   await setCompressedSeen(job.copyPath).catch(() => false)

@@ -35,10 +35,11 @@ watch(compressPulse, async () => {
   pulsing.value = true
 })
 
+/** Compressions and the edit dialog's copies share the queue */
 const label = computed(() =>
   running.value
-    ? `Compressing: ${activeCount.value} left, ${Math.floor(percent.value)}%`
-    : 'Compressions finished',
+    ? `Compress / edit queue: ${activeCount.value} left, ${Math.floor(percent.value)}%`
+    : 'Compress / edit queue finished',
 )
 </script>
 

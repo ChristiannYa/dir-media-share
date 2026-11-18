@@ -17,9 +17,10 @@ import { haptic } from '@/utils/haptics'
  * One section per folder, in the order they were queued, each with its own
  * progress. Each copy is saved next to its original, named after the
  * settings used ("clip [x264 crf20 slow].mp4"); the originals are never
- * touched. Per file: stop it (waiting or compressing), or delete the copy it
- * saved (Discard). Per folder and for everything: stop the rest, clear the
- * ended ones from the list.
+ * touched. The edit dialog's trimmed / cropped copies ("clip_edited.mp4") are
+ * in the same queue, marked "edit". Per file: stop it (waiting or
+ * compressing), or delete the copy it saved (Discard). Per folder and for
+ * everything: stop the rest, clear the ended ones from the list.
  */
 const emit = defineEmits<{ close: [] }>()
 
@@ -28,7 +29,9 @@ const { list, byFolder, activeCount, current, remainingWeight, isActive } = useC
 /**
  * A tap on a file's row closes the popup and goes to its card in the gallery
  * (App.vue: its folder opens first, then the card is scrolled to the middle
- * and flashes): the saved copy once there is one, else the original
+ * and flashes): the saved copy once the job is done, else the original. That
+ * includes an edit that is compressed right after: its edited copy is kept out
+ * of the gallery until the compression ends, so the original is what's there
  */
 function goTo(job: CompressJob) {
   haptic('tap')
@@ -63,9 +66,19 @@ const clearAll = () => act('clear-all', () => clearCompressJobs())
 
 const endedCount = computed(() => list.value.length - activeCount.value)
 
+/** What the queue holds: only compressions, only edits, or both */
+const actions = computed(() => {
+  const edits = list.value.some((j) => j.action === 'edit')
+  const compressions = list.value.some((j) => j.action !== 'edit')
+  return edits && compressions ? 'both' : edits ? 'edit' : 'compress'
+})
+
 const title = computed(() => {
   if (list.value.length === 0) return 'Compressions'
-  return activeCount.value > 0 ? 'Compressing…' : 'Compressions finished'
+  const running = activeCount.value > 0
+  if (actions.value === 'edit') return running ? 'Editing…' : 'Edits finished'
+  if (actions.value === 'both') return running ? 'Compressing and editing…' : 'All finished'
+  return running ? 'Compressing…' : 'Compressions finished'
 })
 
 const subtitle = computed(() => {
@@ -80,7 +93,10 @@ const overallPercent = computed(() => compressPercent(list.value))
 const speedText = computed(() => {
   const job = current.value
   if (!job) return activeCount.value > 0 ? 'waiting…' : ''
-  if (job.kind === 'image') return `compressing ${job.name}`
+  if (job.kind === 'image') {
+    const cropping = job.action === 'edit' && !(job.compressAfter && job.fraction >= 0.5)
+    return `${cropping ? 'cropping' : 'compressing'} ${job.name}`
+  }
   return job.speed ? `${job.speed.toFixed(2)}× real time` : 'starting…'
 })
 
@@ -94,7 +110,10 @@ const etaText = computed(() => {
   return `${(secs / 3600).toFixed(1)} h left`
 })
 
-/** Size of the originals that got a copy, and of those copies */
+/**
+ * Size of the files that got a compressed copy, and of those copies (an edit
+ * compressed too: its edited copy's size; edits alone have no `after`)
+ */
 function sizes(jobs: CompressJob[]) {
   let before = 0
   let after = 0
@@ -117,14 +136,20 @@ function folderParent(folder: string): string {
   return folder.split('/').slice(0, -1).join(' / ')
 }
 
-/** "3 compressed · 1 failed", or how many are left while it runs */
+/** "3 compressed · 1 edited · 1 edited & compressed · 1 failed", or how many are left while it runs */
 function folderSummary(jobs: CompressJob[]): string {
   const left = jobs.filter(isActive).length
   const parts: string[] = []
   if (left) parts.push(`${left} of ${jobs.length} left`)
   const count = (state: CompressJobState) => jobs.filter((j) => j.state === state).length
+  const done = jobs.filter((j) => j.state === 'done')
+  const compressed = done.filter((j) => j.action !== 'edit').length
+  const edited = done.filter((j) => j.action === 'edit' && j.after === null).length
+  const editedCompressed = done.filter((j) => j.action === 'edit' && j.after !== null).length
+  if (compressed) parts.push(`${compressed} compressed`)
+  if (edited) parts.push(`${edited} edited`)
+  if (editedCompressed) parts.push(`${editedCompressed} edited & compressed`)
   for (const [state, label] of [
-    ['done', 'compressed'],
     ['skipped', 'no copy made'],
     ['failed', 'failed'],
     ['cancelled', 'stopped'],
@@ -136,21 +161,53 @@ function folderSummary(jobs: CompressJob[]): string {
   return parts.join(' · ')
 }
 
+/**
+ * An edit that is compressed right after: until the compression ends, the
+ * edited copy isn't in the gallery (the server keeps it out of the listing),
+ * only the original is, so that's where a tap on the row leads (goTo)
+ */
+function editThenCompress(job: CompressJob): boolean {
+  return job.action === 'edit' && job.compressAfter && isActive(job)
+}
+
+/** What the row says while an edit + compress job runs: which step, and what comes next */
+function phaseNote(job: CompressJob): string {
+  if (!editThenCompress(job)) return ''
+  return job.fraction < 0.5
+    ? 'Edited copy first, then it is compressed right after: only the compressed copy is kept'
+    : 'Edited: now compressing it. The copy shows up in the gallery once it is compressed'
+}
+
+/** The tooltip of a row: the file it leads to */
+function rowTitle(job: CompressJob): string {
+  if (editThenCompress(job)) {
+    return `Show ${job.name} in the gallery (the edited copy appears once it is compressed)`
+  }
+  return `Show ${job.state === 'done' && job.copyName ? job.copyName : job.name} in the gallery`
+}
+
 function savingOf(job: CompressJob): number {
   return job.before && job.after !== null ? Math.round((1 - job.after / job.before) * 100) : 0
 }
 
 function progressText(job: CompressJob): string {
   if (job.state === 'waiting') return 'in line'
-  if (job.kind === 'image') return 'compressing…'
-  return `${Math.floor(job.fraction * 100)}%`
+  const percent = `${Math.floor(job.fraction * 100)}%`
+  // edited, then compressed: the first half is the edit, the second the compression
+  const compressing = job.action !== 'edit' || (job.compressAfter && job.fraction >= 0.5)
+  if (job.kind === 'image') return compressing ? 'compressing…' : 'cropping…'
+  if (job.action === 'edit' && job.compressAfter) {
+    return `${compressing ? 'compressing' : 'editing'} ${percent}`
+  }
+  return percent
 }
 </script>
 
 <template>
   <ModalDialog :title="title" :subtitle="subtitle" wide @close="emit('close')">
     <p v-if="list.length === 0" class="empty">
-      Nothing is being compressed. Use Compress in a file's menu, or on a selection.
+      Nothing is being compressed or edited. Use Compress in a file's menu, or on a selection;
+      the trimmed / cropped copies saved from Edit show up here too.
     </p>
 
     <template v-else>
@@ -246,7 +303,7 @@ function progressText(job: CompressJob): string {
               :class="job.state"
               role="button"
               tabindex="0"
-              :title="`Show ${job.state === 'done' && job.copyName ? job.copyName : job.name} in the gallery`"
+              :title="rowTitle(job)"
               @click="goTo(job)"
               @keydown.enter.self="goTo(job)"
               @keydown.space.self.prevent="goTo(job)"
@@ -261,10 +318,22 @@ function progressText(job: CompressJob): string {
                   <span v-else-if="job.state === 'compressing'" class="spinner" />
                   <template v-else>•</template>
                 </span>
+                <span
+                  v-if="job.action === 'edit'"
+                  class="file-tag"
+                  :title="
+                    job.compressAfter
+                      ? 'A trimmed / cropped copy (Edit), compressed too'
+                      : 'A trimmed / cropped copy (Edit)'
+                  "
+                >
+                  {{ job.compressAfter ? 'edit + compress' : 'edit' }}
+                </span>
                 <span class="file-name">{{ job.name }}</span>
                 <span class="file-size">
                   <template v-if="isActive(job)">{{ progressText(job) }}</template>
-                  <template v-else-if="job.state === 'done'">
+                  <!-- compressed (an edit too, when it was compressed after): the sizes -->
+                  <template v-else-if="job.state === 'done' && job.after !== null">
                     {{ formatSize(job.before ?? 0) }} → {{ formatSize(job.after ?? 0) }}
                     <span class="saving">−{{ savingOf(job) }}%</span>
                   </template>
@@ -298,13 +367,15 @@ function progressText(job: CompressJob): string {
               >
                 <div class="fill" :style="{ width: `${job.fraction * 100}%` }" />
               </div>
-              <p v-if="job.note" class="file-note">{{ job.note }}</p>
+              <p v-if="job.note || phaseNote(job)" class="file-note">
+                {{ job.note || phaseNote(job) }}
+              </p>
             </li>
           </ul>
         </section>
       </div>
 
-      <p v-if="list.some((j) => j.state === 'done')" class="trash-note">
+      <p v-if="list.some((j) => j.state === 'done' && j.action !== 'edit')" class="trash-note">
         The originals are untouched: delete them once you've checked the copies to free the space.
       </p>
     </template>
@@ -585,6 +656,19 @@ function progressText(job: CompressJob): string {
 
 .file.discarded .file-name {
   text-decoration: line-through;
+}
+
+/* an edit, not a compression */
+.file-tag {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(245, 197, 24, 0.14);
+  color: #f5c518;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .file-name {

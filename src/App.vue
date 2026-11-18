@@ -46,6 +46,7 @@ import {
   RELOAD_GALLERY_KEY,
   REVEAL_ENTRY_KEY,
   SELECTION_KEY,
+  setOriginalFinder,
   setRevealHandler,
   useGallery,
 } from '@/composables/useGallery'
@@ -654,6 +655,17 @@ async function revealEntry(path: string, openFolder = false) {
 provide(REVEAL_ENTRY_KEY, revealEntry)
 // the same for code outside these components (the compress popup)
 const stopRevealHandler = setRevealHandler(revealEntry)
+// the same for the badge of an edited copy, which leads to its original: looks
+// in the open folder's listing, so it only leads there if the original is there
+const stopOriginalFinder = setOriginalFinder((folder, base, ext) => {
+  if (folder !== currentPath.value) return null
+  const sameName = entries.value.filter((e) => {
+    if (e.kind !== 'video' && e.kind !== 'image') return false
+    const dot = e.name.lastIndexOf('.')
+    return dot > 0 && e.name.slice(0, dot) === base
+  })
+  return (sameName.find((e) => e.name.endsWith(ext)) ?? sameName[0])?.path ?? null
+})
 
 async function shutdown() {
   if (!confirm(SHUTDOWN_CONFIRM)) return
@@ -701,6 +713,7 @@ onUnmounted(() => {
   clearInterval(heartedSwapTimer)
   stopCompressWatch()
   stopRevealHandler()
+  stopOriginalFinder()
 })
 </script>
 

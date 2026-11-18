@@ -3,29 +3,48 @@
 // - 8-bit SDR videos: H.264, 8-bit
 // - 10-bit or HDR videos (iPhones record 10-bit HLG): HEVC, 10-bit, so the
 //   colors aren't squashed into 8-bit SDR (washed out, banding)
-// Either way the original's color tags are written on the copy.
+// Either way the original's color tags are written on the copy. The quality
+// is fixed (server/consts/edit.ts), and ffmpeg runs like the compressions'
+// (./compress.ts runFfmpeg): lowest CPU priority, a share of the threads.
 //
 // 1. ffmpeg writes into a hidden file next to the video
 // 2. It's saved next to the original as "clip_edited.mp4". The original is
 //    never touched.
+//
+// Run by the compress queue in the background (./editMedia.ts); its Discard
+// can delete the copy again for a while, like a compressed one's.
 
 import { randomUUID } from 'node:crypto'
 import { unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { EDITED_SUFFIX } from '../consts/edit.ts'
+import {
+  EDIT_AUDIO_BITRATE,
+  EDIT_CRF,
+  EDIT_HEVC_CRF,
+  EDIT_HEVC_PRESET,
+  EDIT_PRESET,
+  EDITED_SUFFIX,
+} from '../consts/edit.ts'
 import { UPLOAD_PART_SUFFIX } from '../consts/uploads.ts'
 import { claimName } from '../names.ts'
 import { relativePath } from '../paths.ts'
-import { run, type RunResult } from '../run.ts'
-import { PROGRESS_ARGS, progressReader } from './ffmpeg.ts'
+import {
+  CompressError,
+  encodeThreads,
+  rememberCopy,
+  runFfmpeg,
+  type CompressProgress,
+} from './compress.ts'
+import { PROGRESS_ARGS } from './ffmpeg.ts'
 import { videoInfo, type VideoInfo } from './probe.ts'
 
-/** A problem to show the user as is */
-export class EditError extends Error {}
+/** A problem to show the user as is (a CompressError, so the queue shows it like one) */
+export class EditError extends CompressError {}
 
 /**
  * What the edit dialog asks for: the part to keep (seconds) and the crop, in
- * fractions (0–1) of the picture as it's shown (rotation applied)
+ * fractions (0–1) of the picture as it's shown (rotation applied). Photos
+ * have nothing to trim: their start and end are unused
  */
 export interface VideoEdit {
   start: number
@@ -44,7 +63,7 @@ export interface EditResult {
 }
 
 /** Shortest part that can be kept, in seconds */
-const MIN_LENGTH = 0.1
+export const MIN_LENGTH = 0.1
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 /** 4:2:0 video needs even sizes */
@@ -59,10 +78,10 @@ const isHighBitDepth = (pixFmt: string | null) => /1[0-6](le|be)$/.test(pixFmt ?
 /**
  * How the picture is encoded. 10-bit or HDR sources keep 10 bits and their
  * HDR transfer in HEVC ("hvc1": the tag Safari / iOS need to play it; recent
- * Chrome and Edge play it too with hardware decoding). CRF 20 in x265 looks
- * about like 18 in x264. The rest stays H.264, which plays everywhere
+ * Chrome and Edge play it too with hardware decoding). The rest stays H.264,
+ * which plays everywhere
  */
-function videoCodecArgs(info: VideoInfo): string[] {
+function videoCodecArgs(info: VideoInfo, threads: string): string[] {
   const keepTenBit =
     isHighBitDepth(info.pixFmt) || HDR_TRANSFERS.includes(info.colorTransfer ?? '')
   const codec = keepTenBit
@@ -70,17 +89,27 @@ function videoCodecArgs(info: VideoInfo): string[] {
         '-c:v',
         'libx265',
         '-preset',
-        'medium',
+        EDIT_HEVC_PRESET,
         '-crf',
-        '20',
+        String(EDIT_HEVC_CRF),
         '-pix_fmt',
         'yuv420p10le',
         '-tag:v',
         'hvc1',
+        // x265 has its own thread pool, which ffmpeg's -threads doesn't size
         '-x265-params',
-        'log-level=error',
+        `log-level=error:pools=${threads}`,
       ]
-    : ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p']
+    : [
+        '-c:v',
+        'libx264',
+        '-preset',
+        EDIT_PRESET,
+        '-crf',
+        String(EDIT_CRF),
+        '-pix_fmt',
+        'yuv420p',
+      ]
   // the original's color tags, so players show the same colors (an untagged
   // HDR copy would be read as SDR)
   const tags: Array<[string, string | null]> = [
@@ -93,10 +122,13 @@ function videoCodecArgs(info: VideoInfo): string[] {
   return codec
 }
 
-/** "clip.mov" → "clip_edited.mp4" (always .mp4: that's what it now is) */
-function editedName(file: string): string {
+/**
+ * "clip.mov" → "clip_edited.mov" (`ext`, with its dot: the original's unless
+ * given; videos are always ".mp4", that's what they now are)
+ */
+export function editedName(file: string, ext = path.extname(file)): string {
   let base = path.basename(file, path.extname(file))
-  const tail = `${EDITED_SUFFIX}.mp4`
+  const tail = `${EDITED_SUFFIX}${ext}`
   // names are at most 255 bytes; leave room for the suffix and a " (2)"
   const room = 255 - Buffer.byteLength(tail) - 8
   while (Buffer.byteLength(base) > room) base = base.slice(0, -1)
@@ -104,15 +136,49 @@ function editedName(file: string): string {
 }
 
 /**
+ * Tells the listings to keep a name out (true) or lets it show (false): for a
+ * copy that is only a step towards another (see `claimName`'s `hold`)
+ */
+export type HoldCopy = (name: string, held: boolean) => void
+
+/**
+ * Gives the finished hidden file `tmp` its name next to `file`, lets the
+ * queue's Discard delete it for a while, and answers where it went. Stopped
+ * while it was being named: it's removed again. With `hold`, the name is kept
+ * out of the listings from before the file exists, and stays held (the caller
+ * lets it go) unless this fails
+ */
+export async function saveEdited(
+  tmp: string,
+  file: string,
+  name: string,
+  signal: AbortSignal,
+  hold?: HoldCopy,
+): Promise<{ saved: string; result: EditResult }> {
+  const saved = await claimName(tmp, path.dirname(file), name, hold)
+  try {
+    if (signal.aborted) throw new EditError('Cancelled')
+    rememberCopy(saved)
+    return { saved, result: { path: await relativePath(saved), name: path.basename(saved) } }
+  } catch (e) {
+    // nobody gets this copy: gone, and its name no longer held
+    await unlink(saved).catch(() => {})
+    hold?.(path.basename(saved), false)
+    throw e
+  }
+}
+
+/**
  * Saves an edited copy of `file` (a real path inside the shared folder) next
- * to it. `onProgress` hears 0–1 of it written. Aborting `signal` stops it; no
- * copy is kept.
+ * to it. `onProgress` hears how far it got and how fast. Aborting `signal`
+ * stops it; no copy is kept.
  */
 export async function editVideo(
   file: string,
   edit: VideoEdit,
   signal: AbortSignal,
-  onProgress: (fraction: number) => void,
+  onProgress: (p: CompressProgress) => void,
+  hold?: HoldCopy,
 ): Promise<EditResult> {
   const info = await videoInfo(file)
   if (!info?.width || !info.height) throw new EditError("The video couldn't be read")
@@ -137,6 +203,7 @@ export async function editVideo(
   if (!trimmed && !cropped) throw new EditError('Nothing was changed')
 
   const length = end - start
+  const threads = String(encodeThreads())
   const dir = path.dirname(file)
   const tmp = path.join(dir, `.${randomUUID()}.med-edit${UPLOAD_PART_SUFFIX}`)
   const args = [
@@ -145,6 +212,11 @@ export async function editVideo(
     'error',
     '-nostdin',
     '-y',
+    // fewer threads for the decoder and the filters, as in a compression
+    '-threads',
+    threads,
+    '-filter_threads',
+    threads,
     // -ss before -i: fast seek, still frame-exact since it's re-encoded
     '-ss',
     start.toFixed(3),
@@ -161,11 +233,14 @@ export async function editVideo(
     '0',
     '-vf',
     `crop=${w}:${h}:${x}:${y}`,
-    ...videoCodecArgs(info),
+    // the encoder's own thread count (the one above is the decoder's)
+    '-threads',
+    threads,
+    ...videoCodecArgs(info, threads),
     '-c:a',
     'aac',
     '-b:a',
-    '192k',
+    EDIT_AUDIO_BITRATE,
     // the index at the start, so browsers can play it before it's fully downloaded
     '-movflags',
     '+faststart',
@@ -175,30 +250,38 @@ export async function editVideo(
     tmp,
   ]
   try {
-    let result: RunResult
+    let result: { code: number | null; stderr: string }
     try {
-      result = await run('ffmpeg', args, signal, progressReader(length, onProgress))
+      result = await runFfmpeg(args, length, signal, onProgress)
     } catch (e) {
       if (signal.aborted) throw new EditError('Cancelled')
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new EditError('ffmpeg is not installed on the server')
+        throw new EditError('nice is not installed on the server')
       }
       throw e
     }
     if (signal.aborted) throw new EditError('Cancelled')
     if (result.code !== 0) {
-      console.error(`Editing ${file} failed:\n${result.stderr.slice(-8000)}`)
+      // `nice` answers 127 when it can't find ffmpeg
+      if (result.code === 127) throw new EditError('ffmpeg is not installed on the server')
+      console.error(`Editing ${file} failed:\n${result.stderr}`)
       if (/Unknown encoder 'libx265'/.test(result.stderr)) {
         throw new EditError("This server's ffmpeg has no HEVC encoder (libx265) for 10-bit / HDR videos")
       }
       throw new EditError('ffmpeg could not edit it (details in the server log)')
     }
 
-    const saved = await claimName(tmp, dir, editedName(file))
+    const { saved, result: made } = await saveEdited(
+      tmp,
+      file,
+      editedName(file, '.mp4'),
+      signal,
+      hold,
+    )
     console.log(
       `Edited ${file} → ${saved} (${start.toFixed(2)}–${end.toFixed(2)} s, crop ${w}×${h}+${x}+${y})`,
     )
-    return { path: await relativePath(saved), name: path.basename(saved) }
+    return made
   } finally {
     // already gone once it got its name
     await unlink(tmp).catch(() => {})

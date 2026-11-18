@@ -172,6 +172,8 @@ export const API = {
   compressJobs: '/api/compress/jobs',
   /** Adds files to the compress queue: POST JSON { files: [{ path, duration? }] } */
   compressQueue: '/api/compress/queue',
+  /** Adds a trimmed / cropped "<name>_edited.<ext>" copy to the queue (compressed too with compress: true): POST JSON { path, edit, compress? } → { job } */
+  compressEdit: '/api/compress/edit',
   /** Stops compress jobs, waiting or running: POST ?id= | ?folder= | ?all=1 */
   compressCancel: '/api/compress/cancel',
   /** Deletes the copy a compress job saved in the last day: POST ?id= */
@@ -182,11 +184,6 @@ export const API = {
   compressSeen: '/api/compress/seen',
   /** Saves a playable "<name>_ts_fix.mp4" copy of an MPEG-TS video (POST): ?path=. Answers { path, name } */
   fixTs: '/api/file/fix-ts',
-  /**
-   * Saves a trimmed / cropped "<name>_edited.mp4" copy of a video (POST):
-   * ?path=&start=&end=&x=&y=&w=&h=. Answers JSON lines: progress…, done / error
-   */
-  editFile: '/api/file/edit',
   /** The most played videos and photos inside a folder (subfolders included): ?path=&limit= */
   mostPlayed: '/api/most-played',
   /** Hearted videos and photos inside a folder (subfolders included), shuffled: ?path=&limit= */
@@ -405,7 +402,7 @@ export const COMPRESSIBLE_IMAGE_EXTENSIONS: readonly string[] = ['jpg', 'jpeg', 
 export const EDIT_LABEL = 'Edit'
 /** Added to the name of an edited copy: "photo.jpg" → "photo_edited.jpg" (server/consts/edit.ts) */
 export const EDITED_SUFFIX = '_edited'
-/** Photo extensions the browser can crop and write back in the same format */
+/** Photo extensions the server can crop into a copy of the same format (server/media/editMedia.ts) */
 export const EDITABLE_IMAGE_EXTENSIONS: readonly string[] = ['jpg', 'jpeg', 'png', 'webp']
 /** File and folder menu item that renames it */
 export const RENAME_LABEL = 'Rename'

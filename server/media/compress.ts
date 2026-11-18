@@ -131,8 +131,8 @@ interface EncodeOptions {
   audio: 'copy' | 'encode'
 }
 
-/** Threads an encode may use: COMPRESS_CPU_SHARE of the CPU's, at least one */
-function encodeThreads(): number {
+/** Threads an encode may use: COMPRESS_CPU_SHARE of the CPU's, at least one (edits too, ./edit.ts) */
+export function encodeThreads(): number {
   return Math.max(1, Math.floor(os.availableParallelism() * COMPRESS_CPU_SHARE))
 }
 
@@ -220,9 +220,11 @@ function copyName(file: string, target: Target, o: EncodeOptions): string {
 
 /**
  * Runs ffmpeg at the lowest CPU priority and on a share of the threads (so
- * the laptop stays cool and the gallery responsive), reporting its progress. Aborting `signal` kills it.
+ * the laptop stays cool and the gallery responsive), reporting its progress
+ * over `duration` seconds of output. `args` must have `-progress pipe:1`.
+ * Aborting `signal` kills it. Edits run their encodes with it too (./edit.ts)
  */
-function runFfmpeg(
+export function runFfmpeg(
   args: string[],
   duration: number,
   signal: AbortSignal,
@@ -308,13 +310,22 @@ export interface CompressHooks {
   onProgress: (p: CompressProgress) => void
 }
 
-/** Saves a compressed copy of `file` (a real path inside the shared folder), waiting for its turn */
-export function compressVideo(file: string, hooks: CompressHooks): Promise<CompressResult> {
+/**
+ * Runs `work` once it's its turn on the videos' line, which compressions and
+ * edits (./editMedia.ts) share: one encode at a time. `hooks.onStart` is
+ * called as it starts; stopped while waiting, it never does
+ */
+export function onVideoLine<T>(hooks: CompressHooks, work: () => Promise<T>): Promise<T> {
   return JOBS.run(async () => {
     if (hooks.signal.aborted) throw new CompressError('Cancelled')
     hooks.onStart()
-    return compressNow(file, hooks)
+    return work()
   })
+}
+
+/** Saves a compressed copy of `file` (a real path inside the shared folder), waiting for its turn */
+export function compressVideo(file: string, hooks: CompressHooks): Promise<CompressResult> {
+  return onVideoLine(hooks, () => compressNow(file, hooks))
 }
 
 async function compressNow(

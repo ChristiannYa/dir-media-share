@@ -55,13 +55,23 @@ export type CompressJobState =
 /** One file of the server's compress queue (server/compressQueue.ts) */
 export interface CompressJob {
   id: string
+  /** What it makes: a compressed copy, or (the edit dialog) a trimmed / cropped one */
+  action: 'compress' | 'edit'
+  /** The edit (edits only): the part of the video kept in seconds, the crop in fractions 0–1 */
+  edit: { start: number; end: number; x: number; y: number; w: number; h: number } | null
+  /**
+   * Edits only: the edited copy is compressed too (the edit's progress is the
+   * first half, the compression's the second); `before` / `after` are then the
+   * edited copy's size and the compressed one's
+   */
+  compressAfter: boolean
   /** The original, inside the shared folder */
   path: string
   name: string
   /** Its folder ('' = the shared folder itself) */
   folder: string
   kind: 'video' | 'image'
-  /** Seconds of video; null if unknown */
+  /** Seconds of video encoded (an edit: the part kept); null if unknown */
   duration: number | null
   state: CompressJobState
   /** 0–1 encoded (videos) */

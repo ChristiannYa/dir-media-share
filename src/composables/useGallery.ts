@@ -30,6 +30,28 @@ export function setRevealHandler(handler: (path: string, openFolder?: boolean) =
   }
 }
 
+/** Finds a file of the open folder by its name without extension (set by App) */
+let originalFinder: ((folder: string, base: string, ext: string) => string | null) | null = null
+
+/** App registers it; returns a function that removes it again */
+export function setOriginalFinder(finder: NonNullable<typeof originalFinder>) {
+  originalFinder = finder
+  return () => {
+    if (originalFinder === finder) originalFinder = null
+  }
+}
+
+/**
+ * The path of the photo or video called `base` + any extension (`ext`'s
+ * first) in `folder`, if that's the open folder and it's listed there; null
+ * otherwise. For an edited copy to lead to the file it was made from, whose
+ * extension its name doesn't say (a video's copy is always .mp4). Reads the
+ * open listing, so a card using it updates when the original goes or comes
+ */
+export function findOriginal(folder: string, base: string, ext: string): string | null {
+  return originalFinder?.(folder, base, ext) ?? null
+}
+
 /**
  * Opens the folder holding `path` (if it isn't the open one), scrolls to its
  * card and plays its highlight sweep (App.vue). Nothing if the gallery isn't

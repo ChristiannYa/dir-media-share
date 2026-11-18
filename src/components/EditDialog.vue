@@ -1,38 +1,27 @@
 <script setup lang="ts">
-import { computed, inject, onUnmounted, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { REVEAL_ENTRY_KEY } from '@/composables/useGallery'
-import {
-  cropJpegOnServer,
-  editVideo,
-  fileUrl,
-  renameEntry,
-  setPlays,
-  uploadFile,
-  type Upload,
-} from '@/api'
+import { fileUrl, queueEdit, renameEntry, setPlays } from '@/api'
 import { recordsVideoData } from '@/appMode'
+import { pulseCompress } from '@/composables/useCompressQueue'
 import type { Entry } from '@/types'
-import { cropImage } from '@/utils/editImage'
 
 /**
  * Edits a video or photo:
  * - its name and its views (how many times it was played / shown, on every
  *   device): changed on the file itself
  * - cut off the video's start and/or end (yellow handles, like Photos on the
- *   iPhone) and crop the edges of either (the white frame): saved as a copy
- *   next to it, "<name>_edited.<ext>" (videos always .mp4,
- *   server/media/edit.ts; JPEGs are cropped losslessly on the server,
- *   server/media/cropJpeg.ts; other photos in the browser,
- *   src/utils/editImage.ts). The picture of the original is never touched.
+ *   iPhone) and crop the edges of either (the white frame): added to the
+ *   server's compress queue, which saves the copy next to it in the
+ *   background, "<name>_edited.<ext>" (videos always .mp4; JPEGs cropped
+ *   losslessly; server/media/editMedia.ts), with fixed settings that keep it
+ *   looking like the original. Its progress is in the top bar's queue button
+ *   (CompressButton.vue), like a compression's. The original is never touched.
  * Save does them in that order, so the copy is named after the new name.
  */
 const props = defineProps<{ entry: Entry }>()
-/** `changed`: a copy was saved, so the listing should be reloaded */
+/** `changed`: the name or views were saved, so the listing should be reloaded */
 const emit = defineEmits<{ close: []; changed: [] }>()
-
-/** Re-lists the folder and scrolls to a card (App); without it, `changed` just asks for a reload */
-const revealEntry = inject(REVEAL_ENTRY_KEY, null)
 
 const isVideo = props.entry.kind === 'video'
 const src = fileUrl(props.entry.path)
@@ -245,11 +234,14 @@ const canSave = computed(
   () => hasChanges.value && !nameProblem.value && !viewsProblem.value && !saving.value,
 )
 
-/** 0–1 of the copy encoded (video) or uploaded (photo) */
-const progress = ref(0)
 const error = ref('')
-let controller: AbortController | null = null
-let upload: Upload | null = null
+
+/**
+ * Compress the edited copy too, right after it's made (one job in the queue,
+ * like Compress in a file's menu); only the compressed one is kept, unless it
+ * wouldn't get smaller
+ */
+const compressAfter = ref(false)
 
 function reset() {
   Object.assign(crop, { x: 0, y: 0, w: 1, h: 1 })
@@ -259,30 +251,21 @@ function reset() {
   views.value = savedViews.value
 }
 
-/** Folder the file is in ('' for the shared folder itself) */
-function dirOf(path: string): string {
-  const slash = path.lastIndexOf('/')
-  return slash >= 0 ? path.slice(0, slash) : ''
-}
-
-/** Something was saved on the server: the folder is listed again when the dialog closes */
+/** The name or views were saved on the server: the folder is listed again when the dialog closes */
 let anythingSaved = false
-/** Where the trimmed / cropped copy was saved (null: none made); the grid leads to it */
-let copyPath: string | null = null
 
 /**
- * Renames it, sets its views, then makes the trimmed / cropped copy (named
- * after the new name), as far as each changed. A step that fails stops
- * there: the ones before stay saved, and Save tries the rest again.
+ * Renames it, sets its views, then adds the trimmed / cropped copy (named
+ * after the new name) to the queue, as far as each changed, and closes. A
+ * step that fails stops there: the ones before stay saved, and Save tries the
+ * rest again. The copy shows up in the folder once the queue has made it
+ * (App reloads the folder), with the "Edited!" banner.
  */
 async function save() {
   if (!canSave.value) return
   saving.value = true
   error.value = ''
-  progress.value = 0
   video.value?.pause()
-  const abort = new AbortController()
-  controller = abort
   try {
     if (renamed.value) {
       savedPath = await renameEntry(savedPath, newName.value.trim())
@@ -295,64 +278,33 @@ async function save() {
       anythingSaved = true
     }
     if (makesCopy.value) {
-      if (isVideo) {
-        const made = await editVideo(
-          savedPath,
-          { start: trim.start, end: trim.end, ...crop },
-          (f) => (progress.value = f),
-          abort.signal,
-        )
-        copyPath = made.path
-      } else if (/\.jpe?g$/i.test(savedName.value)) {
-        // JPEGs: cropped losslessly on the server (no re-compression, colors kept)
-        copyPath = (await cropJpegOnServer(savedPath, { ...crop }, abort.signal)).path
-      } else {
-        const file = await cropImage(fileUrl(savedPath), savedName.value, { ...crop }, abort.signal)
-        upload = uploadFile(dirOf(savedPath), file, (sent) => {
-          progress.value = file.size ? sent / file.size : 0
-        })
-        copyPath = (await upload.done).path
-      }
-      anythingSaved = true
+      // the haptic tap and the top bar's pulse right away, as for Compress
+      pulseCompress()
+      // a photo has nothing to trim
+      const { start, end } = isVideo ? trim : { start: 0, end: 0 }
+      await queueEdit(savedPath, { start, end, ...crop }, compressAfter.value)
     }
     close()
   } catch (e) {
-    if (!abort.signal.aborted) error.value = e instanceof Error ? e.message : 'Saving failed'
+    error.value = e instanceof Error ? e.message : 'Saving failed'
   } finally {
     saving.value = false
-    controller = null
-    upload = null
   }
 }
 
-/**
- * Closes; if anything was saved, the folder is listed again, which brings the
- * new name, the views (and the folders' totals, the "Most played" order) and
- * the copy
- */
+/** Closes; if the name or views were saved, the folder is listed again */
 function close() {
-  // a copy: the folder is listed again and the page scrolls to the copy's card
-  if (copyPath && revealEntry) void revealEntry(copyPath, true)
-  else if (anythingSaved) emit('changed')
+  if (anythingSaved) emit('changed')
   emit('close')
 }
 
-/** Stops saving; the server keeps nothing of it */
-function stop() {
-  controller?.abort()
-  upload?.cancel()
-}
-
-/** Leaving or reloading the page would stop the saving: ask first */
+/** Leaving or reloading the page mid-save could lose the rest of it: ask first */
 function onBeforeUnload(e: BeforeUnloadEvent) {
   if (saving.value) e.preventDefault()
 }
 
 window.addEventListener('beforeunload', onBeforeUnload)
-onUnmounted(() => {
-  window.removeEventListener('beforeunload', onBeforeUnload)
-  stop()
-})
+onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 </script>
 
 <template>
@@ -481,28 +433,31 @@ onUnmounted(() => {
       </div>
     </template>
 
-    <div v-if="saving" class="bar"><div class="fill" :style="{ width: pct(progress) }" /></div>
+    <!-- only means something once there's a copy to make (trim / crop) -->
+    <label class="check" :class="{ off: !makesCopy }">
+      <input v-model="compressAfter" type="checkbox" :disabled="saving || !makesCopy" />
+      <span class="box" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" /></svg>
+      </span>
+      <span class="check-text">
+        Compress it too
+        <small>Once the copy is made, like Compress does; only the compressed one is kept</small>
+      </span>
+    </label>
+
     <p v-if="error" class="error">{{ error }}</p>
     <p v-else class="hint">
       The name and views change this file. Trimming or cropping saves a new file ending in
-      “_edited” next to it, which stays as it is.
+      “_edited” next to it, in the background (its progress is in the top bar), so this file
+      stays as it is.
     </p>
 
     <div class="actions">
       <button class="button" :disabled="saving || !hasChanges" @click="reset">Reset</button>
       <span class="spacer" />
-      <button v-if="saving" class="button" @click="stop">Stop</button>
-      <button v-else class="button" @click="close">Cancel</button>
+      <button class="button" :disabled="saving" @click="close">Cancel</button>
       <button class="button primary" :disabled="!canSave" @click="save">
-        {{
-          saving
-            ? makesCopy
-              ? `Saving… ${Math.floor(progress * 100)}%`
-              : 'Saving…'
-            : makesCopy && !renamed && !viewsChanged
-              ? 'Save copy'
-              : 'Save'
-        }}
+        {{ saving ? 'Saving…' : makesCopy && !renamed && !viewsChanged ? 'Save copy' : 'Save' }}
       </button>
     </div>
   </ModalDialog>
@@ -754,21 +709,97 @@ onUnmounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Progress and messages (as in CompressDialog) ── */
-.bar {
-  height: 0.5rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
+/* ── "Compress it too": a checkbox in the inputs' style (dark fill, the edge,
+   the primary button's blue once ticked) ── */
+.check {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #2d6cdf, #8a5cf6);
-  transition: width 0.2s linear;
+.check.off {
+  opacity: 0.4;
+  cursor: default;
 }
 
+/* the real checkbox stays for the keyboard and screen readers, unseen */
+.check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  box-sizing: border-box;
+  border: 1px solid var(--edge);
+  border-radius: 0.35rem;
+  background: rgba(0, 0, 0, 0.35);
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+
+.box svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: #fff;
+  opacity: 0;
+  transform: scale(0.6);
+  transition:
+    opacity 0.12s,
+    transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1.3);
+}
+
+.check:not(.off):hover .box {
+  border-color: #2d6cdf;
+}
+
+.check input:checked + .box {
+  border-color: #2d6cdf;
+  background: #2d6cdf;
+}
+
+.check input:checked + .box svg {
+  opacity: 1;
+  transform: none;
+}
+
+.check input:focus-visible + .box {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 2px;
+}
+
+.check-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  color: #ddd;
+  font-size: 0.85rem;
+  line-height: 1.25rem;
+}
+
+.check-text small {
+  color: #8f88aa;
+  font-size: 0.72rem;
+  line-height: 1.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .box svg {
+    transition: none;
+  }
+}
+
+/* ── Messages ── */
 .hint {
   margin: 0;
   color: #8f88aa;

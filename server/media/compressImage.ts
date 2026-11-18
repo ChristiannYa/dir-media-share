@@ -61,9 +61,10 @@ export function isCompressibleImageName(name: string): boolean {
 
 /**
  * Runs one of the tools. Throws a CompressError the user can read if it isn't
- * installed (naming the package to install), or "Cancelled" if aborted.
+ * installed (naming the package to install), or "Cancelled" if aborted. The
+ * photo edits run theirs with it too (./cropImage.ts)
  */
-async function tool(
+export async function tool(
   program: string,
   pkg: string,
   args: string[],
@@ -101,13 +102,22 @@ function copyName(file: string, tag: string): string {
   return `${base} ${tag}${ext}`
 }
 
-/** Saves a compressed copy of the photo `file` (a real path inside the shared folder), waiting for its turn */
-export function compressImage(file: string, hooks: CompressHooks): Promise<CompressResult> {
+/**
+ * Runs `work` once it's its turn on the photos' line, which compressions and
+ * photo edits (./editMedia.ts) share. `hooks.onStart` is called as it starts;
+ * stopped while waiting, it never does
+ */
+export function onImageLine<T>(hooks: CompressHooks, work: () => Promise<T>): Promise<T> {
   return JOBS.run(async () => {
     if (hooks.signal.aborted) throw new CompressError('Cancelled')
     hooks.onStart()
-    return compressNow(file, hooks)
+    return work()
   })
+}
+
+/** Saves a compressed copy of the photo `file` (a real path inside the shared folder), waiting for its turn */
+export function compressImage(file: string, hooks: CompressHooks): Promise<CompressResult> {
+  return onImageLine(hooks, () => compressNow(file, hooks))
 }
 
 async function compressNow(file: string, { signal }: CompressHooks): Promise<CompressResult> {

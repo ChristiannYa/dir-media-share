@@ -7,6 +7,7 @@ import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './consts/fileTypes.ts'
 import { FOLDER_PREVIEW_IMAGE_EXTENSIONS } from './consts/folderPreviews.ts'
 import { UPLOAD_PART_SUFFIX } from './consts/uploads.ts'
 import { compressedNewIn, isCompressedNew } from './compressedNew.ts'
+import { isHiddenCopy } from './hiddenCopies.ts'
 import { favoritesIn, isFavorite } from './favorites.ts'
 import { lastViewed } from './views.ts'
 import { isMpegts, videoInfo } from './media/probe.ts'
@@ -177,6 +178,7 @@ async function toEntry(
  * (e.g. for the "Most played" section); null if it's gone
  */
 export async function entryAt(rel: string, options: ListOptions): Promise<Entry | null> {
+  if (isHiddenCopy(rel)) return null
   const parentRel = path.posix.dirname(rel) === '.' ? '' : path.posix.dirname(rel)
   const dir = await resolveDir(parentRel)
   if (!dir) return null
@@ -186,7 +188,9 @@ export async function entryAt(rel: string, options: ListOptions): Promise<Entry 
 /** Lists `dir`, whose path relative to the shared folder is `rel` */
 export async function list(dir: string, rel: string, options: ListOptions): Promise<Entry[]> {
   const names = (await readdir(dir).catch(() => [] as string[])).filter(
-    (name) => !name.endsWith(UPLOAD_PART_SUFFIX), // uploads still in progress
+    (name) =>
+      !name.endsWith(UPLOAD_PART_SUFFIX) && // uploads still in progress
+      !isHiddenCopy(rel ? `${rel}/${name}` : name), // the edited copy still being compressed
   )
   const entries = await Promise.all(names.map((name) => toEntry(dir, rel, name, options)))
   return sort(entries.filter((e): e is Entry => e !== null))

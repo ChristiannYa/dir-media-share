@@ -4,7 +4,7 @@ import type { CompressJob } from '@/types'
 import { haptic } from '@/utils/haptics'
 
 /**
- * Goes up each time Compress is pressed. The top bar (BreadcrumbBar.vue)
+ * Goes up each time Compress (or an edit's Save copy) is pressed. The top bar (BreadcrumbBar.vue)
  * answers by sliding into view, quickly, and bumps `compressPulse` once it's there
  */
 export const compressRequest = ref(0)
@@ -25,7 +25,8 @@ export function pulseCompress() {
 
 /**
  * The server's compress queue (server/compressQueue.ts), live: the server
- * compresses in the background, so the app stays usable, and every change
+ * compresses, and makes the edit dialog's trimmed / cropped copies (jobs with
+ * `action: 'edit'`), in the background, so the app stays usable, and every change
  * arrives on the job events stream (useJobEvents calls applyCompressEvent).
  * The whole list is fetched again each time that stream (re)connects, so
  * nothing missed meanwhile stays out of date.
@@ -99,9 +100,13 @@ const byFolder = computed(() => {
 /** Jobs still waiting or compressing */
 const activeCount = computed(() => list.value.filter(isActive).length)
 
-/** Paths of the files waiting or compressing now */
+/**
+ * Paths of the files waiting or compressing now (not edits: a file being
+ * edited can still be compressed, and edited again)
+ */
 const activePaths = computed(
-  () => new Set(list.value.filter(isActive).map((j) => j.path)),
+  () =>
+    new Set(list.value.filter((j) => j.action !== 'edit' && isActive(j)).map((j) => j.path)),
 )
 
 /** The job compressing now (the video one, if a photo runs beside it) */

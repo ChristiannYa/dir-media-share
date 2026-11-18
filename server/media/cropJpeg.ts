@@ -10,16 +10,16 @@
 // 1. jpegtran writes into a hidden file next to the photo
 // 2. It's saved next to the original as "<name>_edited.<ext>". The original
 //    is never touched.
+//
+// Run by the compress queue in the background (./editMedia.ts), at the
+// lowest CPU priority like the compressions.
 
 import { randomUUID } from 'node:crypto'
 import { readFile, unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { EDITED_SUFFIX } from '../consts/edit.ts'
 import { UPLOAD_PART_SUFFIX } from '../consts/uploads.ts'
-import { claimName } from '../names.ts'
-import { relativePath } from '../paths.ts'
-import { run } from '../run.ts'
-import { EditError, type EditResult } from './edit.ts'
+import { tool } from './compressImage.ts'
+import { EditError, editedName, saveEdited, type EditResult, type HoldCopy } from './edit.ts'
 
 /** The crop, in fractions (0–1) of the photo as it's shown (the camera's rotation applied) */
 export interface CropBox {
@@ -33,17 +33,6 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 
 export function isJpegName(name: string): boolean {
   return /\.jpe?g$/i.test(name)
-}
-
-/** "beach.jpg" → "beach_edited.jpg" */
-function editedName(file: string): string {
-  const ext = path.extname(file)
-  let base = path.basename(file, ext)
-  const tail = `${EDITED_SUFFIX}${ext}`
-  // names are at most 255 bytes; leave room for the suffix and a " (2)"
-  const room = 255 - Buffer.byteLength(tail) - 8
-  while (Buffer.byteLength(base) > room) base = base.slice(0, -1)
-  return `${base}${tail}`
 }
 
 interface JpegLayout {
@@ -143,6 +132,7 @@ export async function cropJpeg(
   file: string,
   crop: CropBox,
   signal: AbortSignal,
+  hold?: HoldCopy,
 ): Promise<EditResult> {
   const layout = jpegLayout(await readFile(file))
   if (!layout) throw new EditError("The photo couldn't be read")
@@ -164,25 +154,17 @@ export async function cropJpeg(
   const tmp = path.join(dir, `.${randomUUID()}.med-edit${UPLOAD_PART_SUFFIX}`)
   const args = ['-copy', 'all', '-crop', `${w}x${h}+${x}+${y}`, '-outfile', tmp, file]
   try {
-    let result
-    try {
-      result = await run('jpegtran', args, signal)
-    } catch (e) {
-      if (signal.aborted) throw new EditError('Cancelled')
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new EditError('jpegtran (libjpeg-turbo) is not installed on the server')
-      }
-      throw e
-    }
+    // throws a readable error if it isn't installed, "Cancelled" if stopped
+    const result = await tool('jpegtran', 'libjpeg-turbo', args, signal)
     if (signal.aborted) throw new EditError('Cancelled')
     if (result.code !== 0) {
       console.error(`Cropping ${file} failed:\n${result.stderr.slice(-8000)}`)
       throw new EditError('jpegtran could not crop it (details in the server log)')
     }
 
-    const saved = await claimName(tmp, dir, editedName(file))
+    const { saved, result: made } = await saveEdited(tmp, file, editedName(file), signal, hold)
     console.log(`Cropped ${file} → ${saved} (${w}×${h}+${x}+${y}, lossless)`)
-    return { path: await relativePath(saved), name: path.basename(saved) }
+    return made
   } finally {
     // already gone once it got its name
     await unlink(tmp).catch(() => {})

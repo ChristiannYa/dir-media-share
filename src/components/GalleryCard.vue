@@ -20,13 +20,19 @@ import {
   BADGE_TARGETS_KEY,
   createBadgeStackState,
 } from '@/composables/useBadgeStack'
-import { ICON_COMPRESS, ICON_EYE } from '@/icons'
+import { ICON_COMPRESS, ICON_EDIT, ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
 import type { Entry } from '@/types'
-import { compressedOriginalPath, isMediaEntry } from '@/utils/entry'
-import { revealInGallery } from '@/composables/useGallery'
+import {
+  compressedOriginalPath,
+  editedOriginalName,
+  isCompressedCopy,
+  isEditedCopy,
+  isMediaEntry,
+} from '@/utils/entry'
+import { findOriginal, revealInGallery } from '@/composables/useGallery'
 import { hasPlayed } from '@/utils/firstPlays'
 import { formatDuration, formatQuality, formatSize } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
@@ -119,14 +125,43 @@ const stackState = createBadgeStackState()
 provide(BADGE_TARGETS_KEY, { stack: stackEl, row: rowEl })
 provide(BADGE_STACK_STATE_KEY, stackState)
 
-/** A compressed copy's original (its path, from the copy's name), for the "Compressed!" badge to lead to; null if unknown */
-const compressedOriginal = computed(() => compressedOriginalPath(props.entry))
+/**
+ * The file an edited copy was made from, for the "Edited!" badge to lead to:
+ * found by its name in the open folder's listing (a video's copy is always
+ * .mp4, so its extension isn't in the name). Null if it isn't listed there
+ * (moved, deleted, in another folder than the open one)
+ */
+const editedOriginal = computed(() => {
+  const from = editedOriginalName(props.entry)
+  return from ? findOriginal(from.folder, from.base, from.ext) : null
+})
 
-/** The "Compressed!" badge was tapped: goes to the original's card (its folder opens first if needed) */
-function showOriginal() {
-  if (!compressedOriginal.value) return
+/**
+ * A compressed copy's original, for the "Compressed!" badge to lead to: its
+ * path from the copy's name; for an edited copy compressed too, the file the
+ * edit was made from (the edited copy its name points to was deleted); null
+ * if unknown
+ */
+const compressedOriginal = computed(() =>
+  isEditedCopy(props.entry) ? editedOriginal.value : compressedOriginalPath(props.entry),
+)
+
+/**
+ * What a new copy wears, each as its own badge, side by side: "Edited!" for
+ * the edit dialog's trimmed / cropped copies, "Compressed!" for compressed
+ * ones; an edited copy compressed too wears both. (Not an edited one by name
+ * without the compression's tag: that one was never compressed.)
+ */
+const showEditedBadge = computed(() => isEditedCopy(props.entry))
+const showCompressedBadge = computed(
+  () => !isEditedCopy(props.entry) || isCompressedCopy(props.entry),
+)
+
+/** An "Edited!" / "Compressed!" icon badge was tapped: goes to the original's card (its folder opens first if needed) */
+function showOriginal(original: string | null) {
+  if (!original) return
   haptic('tap')
-  void revealInGallery(compressedOriginal.value)
+  void revealInGallery(original)
 }
 
 /** "1 view", "12 views" */
@@ -557,7 +592,7 @@ watch(
         <StackBadge badge="compressedFolder" :show="!!entry.compressed_new_count && !viewsOnly">
           <span
             class="info-badge compressed-badge"
-            :title="`${entry.compressed_new_count} compressed ${entry.compressed_new_count === 1 ? 'copy' : 'copies'} not opened yet in this folder`"
+            :title="`${entry.compressed_new_count} compressed / edited ${entry.compressed_new_count === 1 ? 'copy' : 'copies'} not opened yet in this folder`"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
             {{ entry.compressed_new_count }}
@@ -659,19 +694,43 @@ watch(
       <!-- top-left: a compressed copy not opened yet -->
       <div ref="stackEl" class="badge-stack">
         <StackBadge badge="compressed" :show="showCompressedBanner">
-          <!-- a tap leads to the original it was made from (when its name still
-               says which: compressedOriginalPath); a button, so it doesn't open
-               the card or its menu -->
-          <component
-            :is="compressedOriginal ? 'button' : 'span'"
-            :type="compressedOriginal ? 'button' : undefined"
-            class="info-badge compressed-badge"
-            :class="{ 'compressed-link': compressedOriginal }"
-            :title="compressedOriginal ? 'Show the original' : undefined"
-            @click.stop="showOriginal"
-          >
-            Compressed!
-          </component>
+          <!-- "Edited!" and "Compressed!" as two icon badges in one row, so they
+               take the least room (an edited copy compressed too wears both);
+               the words are their tooltip and screen reader label -->
+          <div class="new-copy-badges">
+            <!-- a tap leads to the file it was edited from, if it's listed (a
+                 button then, so it doesn't open the card or its menu) -->
+            <component
+              :is="editedOriginal ? 'button' : 'span'"
+              v-if="showEditedBadge"
+              :type="editedOriginal ? 'button' : undefined"
+              class="info-badge edited-badge"
+              :class="{ 'compressed-link': editedOriginal }"
+              :title="editedOriginal ? 'Edited! Show the original' : 'Edited!'"
+              :role="editedOriginal ? undefined : 'img'"
+              :aria-label="editedOriginal ? 'Edited! Show the original' : 'Edited!'"
+              @click.stop="showOriginal(editedOriginal)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EDIT" /></svg>
+            </component>
+            <!-- a tap leads to the original it was made from (when its name still
+                 says which: compressedOriginalPath; an edited copy's: found like
+                 the edited badge's); a button, so it doesn't open the card or
+                 its menu -->
+            <component
+              :is="compressedOriginal ? 'button' : 'span'"
+              v-if="showCompressedBadge"
+              :type="compressedOriginal ? 'button' : undefined"
+              class="info-badge compressed-badge"
+              :class="{ 'compressed-link': compressedOriginal }"
+              :title="compressedOriginal ? 'Compressed! Show the original' : 'Compressed!'"
+              :role="compressedOriginal ? undefined : 'img'"
+              :aria-label="compressedOriginal ? 'Compressed! Show the original' : 'Compressed!'"
+              @click.stop="showOriginal(compressedOriginal)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+            </component>
+          </div>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
         <!-- how many times it was shown in the viewer, like a video's (in the
@@ -807,19 +866,43 @@ watch(
            or the row by its kind, wherever it's written -->
       <div ref="stackEl" class="badge-stack">
         <StackBadge badge="compressed" :show="showCompressedBanner">
-          <!-- a tap leads to the original it was made from (when its name still
-               says which: compressedOriginalPath); a button, so it doesn't open
-               the card or its menu -->
-          <component
-            :is="compressedOriginal ? 'button' : 'span'"
-            :type="compressedOriginal ? 'button' : undefined"
-            class="info-badge compressed-badge"
-            :class="{ 'compressed-link': compressedOriginal }"
-            :title="compressedOriginal ? 'Show the original' : undefined"
-            @click.stop="showOriginal"
-          >
-            Compressed!
-          </component>
+          <!-- "Edited!" and "Compressed!" as two icon badges in one row, so they
+               take the least room (an edited copy compressed too wears both);
+               the words are their tooltip and screen reader label -->
+          <div class="new-copy-badges">
+            <!-- a tap leads to the file it was edited from, if it's listed (a
+                 button then, so it doesn't open the card or its menu) -->
+            <component
+              :is="editedOriginal ? 'button' : 'span'"
+              v-if="showEditedBadge"
+              :type="editedOriginal ? 'button' : undefined"
+              class="info-badge edited-badge"
+              :class="{ 'compressed-link': editedOriginal }"
+              :title="editedOriginal ? 'Edited! Show the original' : 'Edited!'"
+              :role="editedOriginal ? undefined : 'img'"
+              :aria-label="editedOriginal ? 'Edited! Show the original' : 'Edited!'"
+              @click.stop="showOriginal(editedOriginal)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EDIT" /></svg>
+            </component>
+            <!-- a tap leads to the original it was made from (when its name still
+                 says which: compressedOriginalPath; an edited copy's: found like
+                 the edited badge's); a button, so it doesn't open the card or
+                 its menu -->
+            <component
+              :is="compressedOriginal ? 'button' : 'span'"
+              v-if="showCompressedBadge"
+              :type="compressedOriginal ? 'button' : undefined"
+              class="info-badge compressed-badge"
+              :class="{ 'compressed-link': compressedOriginal }"
+              :title="compressedOriginal ? 'Compressed! Show the original' : 'Compressed!'"
+              :role="compressedOriginal ? undefined : 'img'"
+              :aria-label="compressedOriginal ? 'Compressed! Show the original' : 'Compressed!'"
+              @click.stop="showOriginal(compressedOriginal)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+            </component>
+          </div>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
         <StackBadge
@@ -1652,8 +1735,10 @@ watch(
    A compressed copy not opened yet: a badge like the others on the preview
    (same size, corners, glass blur and rim), tinted with the purple of the top
    bar's compress indicator (CompressButton.vue's count bubble, #8a5cf6) over
-   the dark badge glass. In the top-left stack, under the status pill */
-.compressed-badge {
+   the dark badge glass. In the top-left stack, under the status pill. The
+   "Edited!" badge beside it (an edited copy) has the same tint */
+.compressed-badge,
+.edited-badge {
   background:
     linear-gradient(145deg, rgba(138, 92, 246, 0.72), rgba(138, 92, 246, 0.5)),
     rgba(5, 4, 10, var(--badge-darkness));
@@ -1664,6 +1749,15 @@ watch(
   color: #fff;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+/* "Edited!" and "Compressed!" side by side, each its own icon badge: always
+   one row, as the two icons fit on any card */
+.new-copy-badges {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 0.3rem;
 }
 
 /* the one that leads to the original: a button, so it takes taps (the stack

@@ -52,6 +52,12 @@ export const ROUTE_DISCARD_UPLOAD = '/api/file/discard'
 export const ROUTE_COMPRESS_JOBS = '/api/compress/jobs'
 /** Adds files to the compress queue: POST JSON { files: [{ path, duration? }] } */
 export const ROUTE_COMPRESS_QUEUE = '/api/compress/queue'
+/**
+ * Adds a trimmed / cropped copy (the edit dialog) to the compress queue,
+ * saved as "<name>_edited.<ext>" (server/media/editMedia.ts):
+ * POST JSON { path, edit: { start, end, x, y, w, h }, compress? } → { job }
+ */
+export const ROUTE_COMPRESS_EDIT = '/api/compress/edit'
 /** Stops compress jobs, waiting or running: POST ?id= | ?folder= | ?all=1 */
 export const ROUTE_COMPRESS_CANCEL = '/api/compress/cancel'
 /** Deletes the copy a compress job saved in the last day: POST ?id= */
@@ -65,12 +71,6 @@ export const ROUTE_COMPRESS_SEEN = '/api/compress/seen'
  * next to it. Answers JSON lines (progress…, done { path, name } / error): POST ?path=
  */
 export const ROUTE_FIX_TS = '/api/file/fix-ts'
-/**
- * Saves a trimmed / cropped copy of a video as "<name>_edited.mp4" next to it
- * (server/media/edit.ts). Answers JSON lines (progress…, done { path, name } /
- * error); closing the request stops it: POST ?path=&start=&end=&x=&y=&w=&h=
- */
-export const ROUTE_EDIT_FILE = '/api/file/edit'
 /** Adds or removes the heart of a video or photo (server/favorites.ts): POST ?path=&on=1|0 */
 export const ROUTE_FAVORITE = '/api/favorite'
 /**

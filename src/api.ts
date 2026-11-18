@@ -201,7 +201,7 @@ export async function fetchFolders(path: string): Promise<FolderRef[]> {
   return (await res.json()) as FolderRef[]
 }
 
-/** One line of the fix-ts / edit answer (see server/handlers/tsFix.ts, edit.ts) */
+/** One line of the fix-ts answer (see server/handlers/tsFix.ts) */
 type JobMessage =
   | { type: 'progress'; fraction: number }
   | { type: 'done'; path: string; name: string }
@@ -218,59 +218,6 @@ export async function fixTs(
 ): Promise<{ path: string; name: string }> {
   const res = await fetch(`${API.fixTs}?path=${encodeURIComponent(path)}`, { method: 'POST' })
   return readJob(res, onProgress, 'Fixing')
-}
-
-/** The part of a video to keep (seconds) and its crop (fractions 0–1 of the picture as shown) */
-export interface VideoEdit {
-  start: number
-  end: number
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-/**
- * Has the server save a trimmed / cropped copy of a video next to it as
- * "<name>_edited.mp4" (the original is kept). `onProgress` hears 0–1 of it
- * written. Aborting `signal` stops it; no copy is kept.
- */
-export async function editVideo(
-  path: string,
-  edit: VideoEdit,
-  onProgress: (fraction: number) => void,
-  signal?: AbortSignal,
-): Promise<{ path: string; name: string }> {
-  const params = new URLSearchParams({ path })
-  for (const [key, value] of Object.entries(edit)) params.set(key, String(value))
-  try {
-    const res = await fetch(`${API.editFile}?${params}`, { method: 'POST', signal })
-    return await readJob(res, onProgress, 'Saving')
-  } catch (e) {
-    if (e instanceof TypeError && !signal?.aborted) throw new Error('Connection lost') // fetch's network errors
-    throw e
-  }
-}
-
-/**
- * Has the server crop a JPEG losslessly (no re-compression; its color profile
- * and EXIF kept) into a copy next to it, "<name>_edited.jpg". `crop` is in
- * fractions (0–1) of the photo as shown. Aborting `signal` stops it.
- */
-export async function cropJpegOnServer(
-  path: string,
-  crop: { x: number; y: number; w: number; h: number },
-  signal?: AbortSignal,
-): Promise<{ path: string; name: string }> {
-  const params = new URLSearchParams({ path })
-  for (const [key, value] of Object.entries(crop)) params.set(key, String(value))
-  try {
-    const res = await fetch(`${API.editFile}?${params}`, { method: 'POST', signal })
-    return await readJob(res, () => {}, 'Cropping')
-  } catch (e) {
-    if (e instanceof TypeError && !signal?.aborted) throw new Error('Connection lost')
-    throw e
-  }
 }
 
 /** Reads a progress… / done / error stream of JSON lines until its outcome */
@@ -580,6 +527,40 @@ export async function queueCompress(
   }
   if (!res.ok) throw new Error(data.error ?? `Compressing failed (${res.status})`)
   return { queued: data.queued ?? [], refused: data.refused ?? [] }
+}
+
+/**
+ * The part of a video to keep (seconds) and its crop (fractions 0–1 of the
+ * picture as shown); a photo's start and end are unused
+ */
+export interface MediaEdit {
+  start: number
+  end: number
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/**
+ * Adds a trimmed / cropped copy of a video or photo to the server's compress
+ * queue, which saves it next to the original as "<name>_edited.<ext>" in the
+ * background (the original is kept). With `compress`, that copy is
+ * compressed too, and only the compressed one is kept. Answers the new job
+ */
+export async function queueEdit(
+  path: string,
+  edit: MediaEdit,
+  compress = false,
+): Promise<CompressJob> {
+  const res = await fetch(API.compressEdit, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, edit, compress }),
+  })
+  const data = (await res.json().catch(() => ({}))) as { job?: CompressJob; error?: string }
+  if (!res.ok || !data.job) throw new Error(data.error ?? `Saving the copy failed (${res.status})`)
+  return data.job
 }
 
 /** Stops compress jobs (one, a folder's, or all), waiting or running; the copies already saved stay */

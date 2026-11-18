@@ -1,6 +1,7 @@
 // The compress queue (server/compressQueue.ts): adding videos and photos to
-// it, stopping them, deleting copies again, clearing the ended ones, and the
-// "Compressed!" banner of copies not opened yet (server/compressedNew.ts).
+// it (to compress, or the edit dialog's trimmed / cropped copies), stopping
+// them, deleting copies again, clearing the ended ones, and the "Compressed!"
+// / "Edited!" banner of copies not opened yet (server/compressedNew.ts).
 
 import { setCompressedSeen } from '../compressedNew.ts'
 import {
@@ -9,6 +10,7 @@ import {
   compressJobs,
   discardCompressJob,
   enqueueCompress,
+  enqueueEdit,
   jobIdsIn,
   type CompressRequest,
 } from '../compressQueue.ts'
@@ -41,6 +43,36 @@ export const queueCompress: Handler = async (req, res) => {
     .filter((f): f is CompressRequest => typeof (f as CompressRequest)?.path === 'string')
     .map((f) => ({ path: f.path, duration: typeof f.duration === 'number' ? f.duration : null }))
   sendJson(res, await enqueueCompress(requests))
+}
+
+/**
+ * POST /api/compress/edit with a JSON body `{ path, edit: { start, end, x, y, w, h }, compress? }`
+ * (the edit dialog: the part of the video kept in seconds, the crop in
+ * fractions 0–1 of the picture as shown; photos' start / end are unused):
+ * adds the trimmed / cropped copy to the queue, which makes it in the
+ * background as "<name>_edited.<ext>" and, with `compress: true`, compresses
+ * it too, keeping only the compressed one. Answers `{ job }`.
+ */
+export const queueEdit: Handler = async (req, res) => {
+  let body: unknown
+  try {
+    body = await readJson(req, MAX_QUEUE_BODY)
+  } catch {
+    return sendJson(res, { error: 'Invalid request' }, 400)
+  }
+  const { path, edit, compress } = (body ?? {}) as {
+    path?: unknown
+    edit?: unknown
+    compress?: unknown
+  }
+  if (typeof path !== 'string') return sendJson(res, { error: 'Invalid request' }, 400)
+  try {
+    sendJson(res, { job: await enqueueEdit(path, edit, compress === true) })
+  } catch (e) {
+    if (e instanceof CompressError) return sendJson(res, { error: e.message }, 400)
+    console.error('Queueing an edit failed:', e)
+    sendJson(res, { error: 'It could not be added to the queue' }, 500)
+  }
 }
 
 /**
