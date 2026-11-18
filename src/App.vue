@@ -16,7 +16,14 @@ import MediaLightbox from '@/components/MediaLightbox.vue'
 import NightSky from '@/components/NightSky.vue'
 import SelectionBar from '@/components/SelectionBar.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
-import { fetchHearted, fetchMostPlayed, markViewed, setFavorite, shutdownServer } from '@/api'
+import {
+  fetchHearted,
+  fetchMostPlayed,
+  markCompressedSeen,
+  markViewed,
+  setFavorite,
+  shutdownServer,
+} from '@/api'
 import { recordsVideoData } from '@/appMode'
 import {
   ALPHABET_FOLDERS,
@@ -41,6 +48,7 @@ import {
   SELECTION_KEY,
   useGallery,
 } from '@/composables/useGallery'
+import { onCompressFolderChanged } from '@/composables/useCompressQueue'
 import { useJobEvents } from '@/composables/useJobEvents'
 import { useLightbox } from '@/composables/useLightbox'
 import { MEDIA_STATUS_KEY, useMediaStatus } from '@/composables/useMediaStatus'
@@ -352,6 +360,30 @@ watch(selected, (entry) => {
   }
 })
 
+// ── Compressed copies ──
+// The server compresses in the background (useCompressQueue). A copy saved
+// into (or deleted from) the open folder, or one of its subfolders, shows
+// at once: the listing loads again. A new copy wears the "Compressed!"
+// banner (GalleryCard.vue) until it's opened in the viewer, on any device.
+
+const stopCompressWatch = onCompressFolderChanged((folder) => {
+  const open = currentPath.value
+  if (folder === open || open === '' || folder.startsWith(`${open}/`)) void reload()
+})
+
+watch(selected, (entry) => {
+  if (!entry?.compressed_new) return
+  // every card of the file (grid, "Most played", "Hearted") loses it
+  const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
+    (e) => e.path === entry.path,
+  )
+  for (const e of copies) e.compressed_new = false
+  markCompressedSeen(entry.path).catch((e: unknown) => {
+    for (const c of copies) c.compressed_new = true
+    console.warn(e)
+  })
+})
+
 // ── Selection mode ──
 // Turned on from the Select row of a file's menu (FileMenu.vue): tapping a
 // file picks it instead of opening it, and the bar at the bottom moves or
@@ -604,6 +636,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   clearTimeout(revealTimer)
   clearInterval(heartedSwapTimer)
+  stopCompressWatch()
 })
 </script>
 

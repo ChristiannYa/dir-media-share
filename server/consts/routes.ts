@@ -45,13 +45,21 @@ export const ROUTE_UPLOAD_FILE = '/api/file/upload'
  */
 export const ROUTE_DISCARD_UPLOAD = '/api/file/discard'
 /**
- * Saves a compressed copy of a video or photo next to it, named after the
- * settings used (server/media/compress.ts, compressImage.ts). Answers a stream of JSON lines (queued,
- * started, progress…, done / error); closing the request stops it: POST ?path=
+ * The compress queue (server/compressQueue.ts), which saves compressed copies
+ * of videos and photos next to them in the background. Its changes are on the
+ * job events stream (`event: compress`). Every job, oldest first: GET
  */
-export const ROUTE_COMPRESS_FILE = '/api/file/compress'
-/** Deletes a copy compressed in the last day (compress dialog's Cancel); any other file is refused: POST ?path= */
-export const ROUTE_DISCARD_COMPRESSED = '/api/file/compress/discard'
+export const ROUTE_COMPRESS_JOBS = '/api/compress/jobs'
+/** Adds files to the compress queue: POST JSON { files: [{ path, duration? }] } */
+export const ROUTE_COMPRESS_QUEUE = '/api/compress/queue'
+/** Stops compress jobs, waiting or running: POST ?id= | ?folder= | ?all=1 */
+export const ROUTE_COMPRESS_CANCEL = '/api/compress/cancel'
+/** Deletes the copy a compress job saved in the last day: POST ?id= */
+export const ROUTE_COMPRESS_DISCARD = '/api/compress/discard'
+/** Removes the ended compress jobs (of a folder) from the list: POST ?folder= (none: all) */
+export const ROUTE_COMPRESS_CLEAR = '/api/compress/clear'
+/** A compressed copy was opened: no more "Compressed!" banner (server/compressedNew.ts): POST ?path= */
+export const ROUTE_COMPRESS_SEEN = '/api/compress/seen'
 /**
  * Remuxes an MPEG-TS video saved as .mp4 into a playable "<name>_ts_fix.mp4"
  * next to it. Answers JSON lines (progress…, done { path, name } / error): POST ?path=

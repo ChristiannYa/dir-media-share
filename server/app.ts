@@ -19,9 +19,13 @@ import {
   ROUTE_BROWSE,
   ROUTE_CANCEL_JOB,
   ROUTE_CLEAR_CACHE,
-  ROUTE_COMPRESS_FILE,
+  ROUTE_COMPRESS_CANCEL,
+  ROUTE_COMPRESS_CLEAR,
+  ROUTE_COMPRESS_DISCARD,
+  ROUTE_COMPRESS_JOBS,
+  ROUTE_COMPRESS_QUEUE,
+  ROUTE_COMPRESS_SEEN,
   ROUTE_CREATE_FOLDER,
-  ROUTE_DISCARD_COMPRESSED,
   ROUTE_DISCARD_UPLOAD,
   ROUTE_EDIT_FILE,
   ROUTE_FAVORITE,
@@ -69,7 +73,14 @@ import {
 } from './handlers/appModeImage.ts'
 import { browse } from './handlers/browse.ts'
 import { clearCache } from './handlers/clearCache.ts'
-import { compressFile, discardCompressedFile } from './handlers/compress.ts'
+import {
+  cancelCompressJobs,
+  clearCompressJobs,
+  compressedSeen,
+  discardCompressJobHandler,
+  listCompressJobs,
+  queueCompress,
+} from './handlers/compress.ts'
 import { editFile } from './handlers/edit.ts'
 import {
   createFolder,
@@ -142,8 +153,12 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_SET_PLAYS]: { POST: setPlays },
   [ROUTE_HEATMAP]: { GET: getHeatmap, POST: postHeatmap },
   [ROUTE_DISCARD_UPLOAD]: { POST: discardUpload },
-  [ROUTE_COMPRESS_FILE]: { POST: compressFile },
-  [ROUTE_DISCARD_COMPRESSED]: { POST: discardCompressedFile },
+  [ROUTE_COMPRESS_JOBS]: { GET: listCompressJobs },
+  [ROUTE_COMPRESS_QUEUE]: { POST: queueCompress },
+  [ROUTE_COMPRESS_CANCEL]: { POST: cancelCompressJobs },
+  [ROUTE_COMPRESS_DISCARD]: { POST: discardCompressJobHandler },
+  [ROUTE_COMPRESS_CLEAR]: { POST: clearCompressJobs },
+  [ROUTE_COMPRESS_SEEN]: { POST: compressedSeen },
   [ROUTE_FIX_TS]: { POST: fixTsFile },
   [ROUTE_EDIT_FILE]: { POST: editFile },
   [ROUTE_SETTINGS]: { GET: getSettings, POST: saveSettings },

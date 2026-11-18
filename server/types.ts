@@ -44,6 +44,11 @@ export interface Entry {
   /** Folders only: hearted videos and photos inside it, including subfolders */
   favorite_count: number | null
   /**
+   * Files only: a compressed copy that wasn't opened yet (server/compressedNew.ts):
+   * its card shows the "Compressed!" banner
+   */
+  compressed_new: boolean
+  /**
    * Videos and photos: how many times it was played / shown in the viewer
    * (server/plays.ts). Folders: those of everything inside them added up
    * (subfolders included). Null for other files

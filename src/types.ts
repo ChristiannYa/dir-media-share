@@ -30,11 +30,50 @@ export interface Entry {
   favorite?: boolean
   /** folders only: hearted videos and photos inside, including subfolders */
   favorite_count?: number | null
+  /** files only: a compressed copy not opened yet, shown with the "Compressed!" banner (every device) */
+  compressed_new?: boolean
   /**
    * videos and photos: how many times it was played / shown in the viewer;
    * folders: those of everything inside added up (shared by every device)
    */
   plays?: number | null
+}
+
+export type CompressJobState =
+  | 'waiting'
+  | 'compressing'
+  | 'done'
+  /** No copy saved (it would hardly shrink, HDR…): `note` says why */
+  | 'skipped'
+  | 'failed'
+  | 'cancelled'
+  /** A copy was saved, then deleted again */
+  | 'discarded'
+
+/** One file of the server's compress queue (server/compressQueue.ts) */
+export interface CompressJob {
+  id: string
+  /** The original, inside the shared folder */
+  path: string
+  name: string
+  /** Its folder ('' = the shared folder itself) */
+  folder: string
+  kind: 'video' | 'image'
+  /** Seconds of video; null if unknown */
+  duration: number | null
+  state: CompressJobState
+  /** 0–1 encoded (videos) */
+  fraction: number
+  /** × real time; null until known */
+  speed: number | null
+  before: number | null
+  /** Size of the copy (done only) */
+  after: number | null
+  copyPath: string | null
+  copyName: string | null
+  note: string
+  queuedAt: number
+  endedAt: number | null
 }
 
 /** Returned by /api/info */
@@ -87,6 +126,9 @@ export interface MenuItem {
   busyLabel?: string | (() => string)
   /** Red text, for destructive actions */
   danger?: boolean
+  /** Greyed out and not clickable; `disabledReason` is its tooltip */
+  disabled?: boolean
+  disabledReason?: string
   /**
    * Items next to each other in the list with the same `row` share one row,
    * side by side (each still its own button); without it, a row of its own

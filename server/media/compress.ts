@@ -2,7 +2,7 @@
 // and audio (screen recordings are saved at a very high bitrate).
 //
 // 1. ffmpeg encodes into a hidden file next to the video
-// 2. If that isn't at least compressMinSaving % smaller, it's thrown away
+// 2. If that isn't at least COMPRESS_MIN_SAVING % smaller, it's thrown away
 // 3. Otherwise it's saved next to the original, named after the settings
 //    used: "clip.mp4" → "clip [x264 crf20 slow].mp4". The original is never
 //    touched.
@@ -14,15 +14,24 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { stat, unlink } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import { COMPRESS_DISCARD_WINDOW_MS, COMPRESS_MAX_JOBS } from '../consts/compress.ts'
+import {
+  COMPRESS_CRF,
+  COMPRESS_DISCARD_WINDOW_MS,
+  COMPRESS_MAX_JOBS,
+  COMPRESS_CPU_SHARE,
+  COMPRESS_MIN_SAVING,
+  COMPRESS_NICE,
+  COMPRESS_PRESET,
+  COMPRESS_VP9_CRF,
+} from '../consts/compress.ts'
 import { UPLOAD_PART_SUFFIX } from '../consts/uploads.ts'
 import { isVideoName } from '../listing.ts'
 import { claimName } from '../names.ts'
 import { relativePath } from '../paths.ts'
 import { run } from '../run.ts'
 import { Semaphore } from '../semaphore.ts'
-import { serverSettings } from '../settings.ts'
 import { purgeVideo } from './purge.ts'
 
 /** A problem to show the user as is */
@@ -115,12 +124,24 @@ interface EncodeOptions {
   audio: 'copy' | 'encode'
 }
 
+/** Threads an encode may use: COMPRESS_CPU_SHARE of the CPU's, at least one */
+function encodeThreads(): number {
+  return Math.max(1, Math.floor(os.availableParallelism() * COMPRESS_CPU_SHARE))
+}
+
 function encodeArgs(input: string, out: string, target: Target, o: EncodeOptions): string[] {
+  const threads = String(encodeThreads())
   const args = [
     '-v',
     'error',
     '-nostdin',
     '-y',
+    // fewer threads for the decoder, the filters and the encoder: slower, but
+    // the laptop stays cool (ffmpeg uses every core otherwise)
+    '-threads',
+    threads,
+    '-filter_threads',
+    threads,
     '-i',
     input,
     // the video (not cover art) and every audio track, e.g. OBS's separate mic / desktop tracks
@@ -135,6 +156,8 @@ function encodeArgs(input: string, out: string, target: Target, o: EncodeOptions
     '-fps_mode',
     'passthrough',
   ]
+  // the encoder's own thread count (the one above is the decoder's)
+  args.push('-threads', threads)
   if (target.video === 'x264') {
     args.push(
       '-c:v',
@@ -189,8 +212,8 @@ function copyName(file: string, target: Target, o: EncodeOptions): string {
 }
 
 /**
- * Runs ffmpeg at a low CPU priority (so the gallery stays responsive),
- * reporting its progress. Aborting `signal` kills it.
+ * Runs ffmpeg at the lowest CPU priority and on a share of the threads (so
+ * the laptop stays cool and the gallery responsive), reporting its progress. Aborting `signal` kills it.
  */
 function runFfmpeg(
   args: string[],
@@ -199,7 +222,7 @@ function runFfmpeg(
   onProgress: (p: CompressProgress) => void,
 ): Promise<{ code: number | null; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn('nice', ['-n', '10', 'ffmpeg', ...args], {
+    const child = spawn('nice', ['-n', String(COMPRESS_NICE), 'ffmpeg', ...args], {
       stdio: ['ignore', 'pipe', 'pipe'],
       signal,
       killSignal: 'SIGKILL',
@@ -311,15 +334,14 @@ async function compressNow(
   const duration = Number(info.format?.duration) || 0
   const hasAudio = info.streams?.some((s) => s.codec_type === 'audio') ?? false
 
-  // one set of values for the whole encode (and the name), even if the settings change meanwhile
-  const s = serverSettings
+  // fixed values (server/consts/compress.ts), also used for the copy's name
   const options: EncodeOptions = {
-    crf: s.compressCrf,
-    preset: s.compressPreset,
-    vp9Crf: s.compressVp9Crf,
+    crf: COMPRESS_CRF,
+    preset: COMPRESS_PRESET,
+    vp9Crf: COMPRESS_VP9_CRF,
     audio: 'copy',
   }
-  const minSaving = s.compressMinSaving
+  const minSaving = COMPRESS_MIN_SAVING
 
   const dir = path.dirname(file)
   const tmp = path.join(dir, `.${randomUUID()}.med-compress${UPLOAD_PART_SUFFIX}`)

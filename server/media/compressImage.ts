@@ -2,37 +2,43 @@
 // and size in pixels, each photo made as small as it can get without a
 // visible change. The tool decides how far it can go for each photo:
 //
-// - JPEG: jpegoptim. Photos saved above compressJpegQuality are re-encoded
+// - JPEG: jpegoptim. Photos saved above COMPRESS_JPEG_QUALITY are re-encoded
 //   at it; ones already at or below it are only optimized losslessly.
 //   Comments, XMP and IPTC are dropped; EXIF (rotation, date) and the color
 //   profile stay
 // - PNG: pngquant reduces the colors to at most 256, picked for this image.
-//   If it can't keep the quality within 20 of compressPngQuality, the image
+//   If it can't keep the quality within 20 of COMPRESS_PNG_QUALITY, the image
 //   would visibly change, so no copy is made
-// - WebP: re-encoded by cwebp at compressWebpQuality
+// - WebP: re-encoded by cwebp at COMPRESS_WEBP_QUALITY
 //
 // As with videos (./compress.ts): written to a hidden file next to the photo,
-// kept only if it's at least compressMinSaving % smaller, then named after
+// kept only if it's at least COMPRESS_MIN_SAVING % smaller, then named after
 // the settings used ("photo.png" → "photo [pngquant q85].png"). The original
 // is never touched, and the compress dialog's Cancel can delete the copy.
 
 import { randomUUID } from 'node:crypto'
 import { copyFile, stat, unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { COMPRESS_IMAGE_MAX_JOBS } from '../consts/compress.ts'
+import {
+  COMPRESS_IMAGE_MAX_JOBS,
+  COMPRESS_JPEG_QUALITY,
+  COMPRESS_MIN_SAVING,
+  COMPRESS_NICE,
+  COMPRESS_PNG_QUALITY,
+  COMPRESS_WEBP_QUALITY,
+} from '../consts/compress.ts'
 import { UPLOAD_PART_SUFFIX } from '../consts/uploads.ts'
 import { claimName } from '../names.ts'
 import { relativePath } from '../paths.ts'
 import { run, type RunResult } from '../run.ts'
 import { Semaphore } from '../semaphore.ts'
-import { serverSettings } from '../settings.ts'
 import { CompressError, rememberCopy, type CompressHooks, type CompressResult } from './compress.ts'
 
 type Format = 'jpeg' | 'png' | 'webp'
 
 const FORMATS: Record<string, Format> = { jpg: 'jpeg', jpeg: 'jpeg', png: 'png', webp: 'webp' }
 
-/** How far below compressPngQuality pngquant may go before it gives up on a PNG */
+/** How far below COMPRESS_PNG_QUALITY pngquant may go before it gives up on a PNG */
 const PNG_QUALITY_RANGE = 20
 
 /** Photos compressed at once; separate from the videos' line */
@@ -59,7 +65,13 @@ async function tool(
   signal: AbortSignal,
 ): Promise<RunResult> {
   try {
-    return await run(program, args, signal)
+    // at the lowest CPU priority, like the video encodes; `nice` answers 127
+    // when it can't find the program
+    const result = await run('nice', ['-n', String(COMPRESS_NICE), program, ...args], signal)
+    if (result.code === 127) {
+      throw new CompressError(`${program} is not installed on the server (package "${pkg}")`)
+    }
+    return result
   } catch (e) {
     if (signal.aborted) throw new CompressError('Cancelled')
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -106,16 +118,14 @@ async function compressNow(file: string, { signal }: CompressHooks): Promise<Com
   const format = formatOf(file)
   if (!format) return skip(`${path.extname(file) || 'These'} files can't be compressed`)
 
-  // one set of values for the whole run (and the name), even if the settings change meanwhile
-  const s = serverSettings
-  const minSaving = s.compressMinSaving
+  const minSaving = COMPRESS_MIN_SAVING
 
   const dir = path.dirname(file)
   const tmp = path.join(dir, `.${randomUUID()}.med-compress${UPLOAD_PART_SUFFIX}`)
   try {
     let tag: string
     if (format === 'jpeg') {
-      const q = s.compressJpegQuality
+      const q = COMPRESS_JPEG_QUALITY
       tag = `[jpeg q${q}]`
       // jpegoptim works in place: on a copy, so the original is never touched
       await copyFile(file, tmp)
@@ -135,7 +145,7 @@ async function compressNow(file: string, { signal }: CompressHooks): Promise<Com
       )
       if (result.code !== 0) failed('jpegoptim', file, result)
     } else if (format === 'png') {
-      const q = s.compressPngQuality
+      const q = COMPRESS_PNG_QUALITY
       tag = `[pngquant q${q}]`
       const result = await tool(
         'pngquant',
@@ -162,7 +172,7 @@ async function compressNow(file: string, { signal }: CompressHooks): Promise<Com
       if (result.code === 98) return skip(alreadySmall)
       if (result.code !== 0) failed('pngquant', file, result)
     } else {
-      const q = s.compressWebpQuality
+      const q = COMPRESS_WEBP_QUALITY
       tag = `[webp q${q}]`
       const result = await tool(
         'cwebp',

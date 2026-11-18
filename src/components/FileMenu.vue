@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, inject, ref } from 'vue'
 import CardMenu from '@/components/CardMenu.vue'
-import CompressDialog from '@/components/CompressDialog.vue'
 import EditDialog from '@/components/EditDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
-import { fileUrl, fixTs, trashFile } from '@/api'
+import { fileUrl, fixTs, queueCompress, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
+import { useCompressQueue } from '@/composables/useCompressQueue'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
   COMPRESS_LABEL,
@@ -48,7 +48,6 @@ const menu = ref<InstanceType<typeof CardMenu> | null>(null)
 defineExpose({ open: () => menu.value?.open() })
 
 const picking = ref(false)
-const compressing = ref(false)
 const editing = ref(false)
 const renaming = ref(false)
 /** How far along Fix TS is (0–100); null until the server says */
@@ -125,15 +124,34 @@ const downloadItem: MenuItem = {
   },
 }
 
-const compressItem: MenuItem = {
+const { activePaths } = useCompressQueue()
+/** This file is waiting or compressing right now */
+const compressQueued = computed(() => activePaths.value.has(props.entry.path))
+
+/**
+ * Adds it to the server's compress queue, which works in the background: its
+ * progress is in the top bar's compress button (CompressButton.vue). The menu
+ * closes at once, without waiting for the server's answer: the top bar's
+ * button shows it was queued, and only a problem (already in the queue, not
+ * compressible, no connection) is said, in an alert
+ */
+const compressItem = computed<MenuItem>(() => ({
   label: COMPRESS_LABEL,
   icon: ICON_COMPRESS,
   row: 'tools',
+  // already waiting or compressing (started from this or another device)
+  disabled: compressQueued.value,
+  disabledReason: 'Already in the compress queue',
   async run() {
-    compressing.value = true
+    queueCompress([props.entry]).then(
+      ({ refused }) => {
+        if (refused[0]) alert(`${props.entry.name}: ${refused[0].error}`)
+      },
+      (e: unknown) => alert(e instanceof Error ? e.message : 'Compressing failed'),
+    )
     return null
   },
-}
+}))
 
 /**
  * Selection mode (App.vue): closes the menu and turns it on with this file
@@ -179,7 +197,7 @@ const menuItems = computed<MenuItem[]>(() => [
   ...(props.entry.needs_fix ? [fixItem] : []),
   editItem,
   ...(props.entry.kind === 'image' || props.entry.kind === 'video' ? [downloadItem] : []),
-  ...(isCompressible(props.entry) ? [compressItem] : []),
+  ...(isCompressible(props.entry) ? [compressItem.value] : []),
   ...(selection && !selection.active.value ? [selectItem] : []),
   moveItem,
   trashItem,
@@ -229,12 +247,6 @@ function onMoved() {
     @close="renaming = false"
   />
   <MovePicker v-if="picking" :entries="[entry]" @close="picking = false" @moved="onMoved" />
-  <CompressDialog
-    v-if="compressing"
-    :entries="[entry]"
-    @changed="emit('changed')"
-    @close="compressing = false"
-  />
   <EditDialog
     v-if="editing"
     :entry="entry"

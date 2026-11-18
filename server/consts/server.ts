@@ -67,6 +67,12 @@ export const DATA_DIR = fileURLToPath(new URL('../../config/data/', import.meta.
  */
 export const FAVORITES_FILE = path.join(DATA_DIR, 'favorites.json')
 /**
+ * Compressed copies not opened yet (server/compressedNew.ts): a list of paths
+ * inside the shared folder. Their cards show the "Compressed!" banner until
+ * they're opened in the viewer, on any device.
+ */
+export const COMPRESSED_NEW_FILE = path.join(DATA_DIR, 'compressed-new.json')
+/**
  * When each video, and each folder holding it, was last played in the viewer
  * (server/views.ts): path → ms since 1970. Shared by every device.
  */

@@ -168,13 +168,18 @@ export const API = {
   settings: '/api/settings',
   /** Deletes a file that was just uploaded (upload dialog's Cancel): POST ?path= */
   discardUpload: '/api/file/discard',
-  /**
-   * Saves a compressed copy of a video next to it (POST): ?path=. Answers
-   * JSON lines: queued, started, progress…, done / error
-   */
-  compressFile: '/api/file/compress',
-  /** Deletes a just-compressed copy (compress dialog's Cancel): POST ?path= */
-  discardCompressed: '/api/file/compress/discard',
+  /** The server's compress queue, every job oldest first: GET → { jobs } */
+  compressJobs: '/api/compress/jobs',
+  /** Adds files to the compress queue: POST JSON { files: [{ path, duration? }] } */
+  compressQueue: '/api/compress/queue',
+  /** Stops compress jobs, waiting or running: POST ?id= | ?folder= | ?all=1 */
+  compressCancel: '/api/compress/cancel',
+  /** Deletes the copy a compress job saved in the last day: POST ?id= */
+  compressDiscard: '/api/compress/discard',
+  /** Removes the ended compress jobs (of a folder) from the list: POST ?folder= (none: all) */
+  compressClear: '/api/compress/clear',
+  /** A compressed copy was opened: no more "Compressed!" banner: POST ?path= */
+  compressSeen: '/api/compress/seen',
   /** Saves a playable "<name>_ts_fix.mp4" copy of an MPEG-TS video (POST): ?path=. Answers { path, name } */
   fixTs: '/api/file/fix-ts',
   /**

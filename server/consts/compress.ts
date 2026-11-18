@@ -7,9 +7,9 @@
 // Photos too (server/media/compressImage.ts), like TinyPNG: same format and
 // size in pixels, each made as small as it can get without a visible change.
 //
-// Except the *_MAX_JOBS and COMPRESS_DISCARD_WINDOW_MS, these are defaults:
-// the app's Settings popup can override them (server/settings.ts), so code
-// reads them from `serverSettings`.
+// These are fixed, not in the app's Settings: they're picked for the best
+// size at a quality that's hard to tell from the original. To change one,
+// edit it here and restart the server.
 
 /**
  * x264 quality (CRF) for .mp4 / .mov / .mkv: lower is better and bigger. ~18
@@ -47,9 +47,22 @@ export const COMPRESS_PNG_QUALITY = 85
 export const COMPRESS_WEBP_QUALITY = 80
 /**
  * Photos compressed at the same time. Each takes a second or so, on its own
- * line from the videos, so a photo never waits behind a long video encode
+ * line from the videos, so a photo never waits behind a long video encode.
+ * One at a time keeps the machine calm
  */
-export const COMPRESS_IMAGE_MAX_JOBS = 2
+export const COMPRESS_IMAGE_MAX_JOBS = 1
+/**
+ * Share of the CPU's threads a video encode may use (0–1). Fewer threads
+ * make the encode take longer but keep the laptop cooler and quieter, and
+ * leave the rest for the gallery and anything else running. At least one
+ * thread is always used
+ */
+export const COMPRESS_CPU_SHARE = 0.7 // 70%
+/**
+ * Scheduling priority of every compression program (`nice`, 0–19): 19 is the
+ * lowest, so anything else that needs the CPU always goes first
+ */
+export const COMPRESS_NICE = 19
 /**
  * Videos compressed at the same time. Each encode already uses every CPU
  * core, so more only makes each one slower.

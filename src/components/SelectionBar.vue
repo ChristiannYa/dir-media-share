@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import CompressDialog from '@/components/CompressDialog.vue'
+import { computed, onUnmounted, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
-import { trashFile } from '@/api'
+import { queueCompress, trashFile } from '@/api'
+import { useCompressQueue } from '@/composables/useCompressQueue'
 import { COMPRESS_LABEL } from '@/constants'
 import {
   ICON_CHECK,
@@ -52,8 +52,40 @@ const totalSize = computed(() => props.selected.reduce((sum, e) => sum + (e.size
 // ── Compress ──
 /** The picked videos and photos that can be compressed (other files are skipped) */
 const compressible = computed(() => props.selected.filter(isCompressible))
-/** The files being compressed; the compress popup is open while set */
-const compressing = ref<Entry[] | null>(null)
+const { activePaths } = useCompressQueue()
+/** Of those, the ones not already waiting or compressing */
+const compressNew = computed(() => compressible.value.filter((e) => !activePaths.value.has(e.path)))
+/** Adding them to the server's compress queue */
+const queueing = ref(false)
+/** What queueing them did ("3 queued"), on the first row for a moment */
+const compressNote = ref<string | null>(null)
+let noteTimer: ReturnType<typeof setTimeout> | undefined
+/** How long compressNote stays */
+const NOTE_MS = 4000
+
+/**
+ * Adds the picked videos and photos to the server's compress queue, which
+ * works in the background: its progress is in the top bar's compress button
+ * (CompressButton.vue). Selection mode stays on
+ */
+async function compressSelected() {
+  if (queueing.value || compressNew.value.length === 0) return
+  queueing.value = true
+  try {
+    const { queued, refused } = await queueCompress([...compressNew.value])
+    compressNote.value =
+      refused.length === 0
+        ? `${queued.length} queued for compressing`
+        : `${queued.length} queued · ${refused.length} not: ${refused[0]!.error}`
+  } catch (e) {
+    compressNote.value = e instanceof Error ? e.message : 'Compressing failed'
+  } finally {
+    queueing.value = false
+    clearTimeout(noteTimer)
+    noteTimer = setTimeout(() => (compressNote.value = null), NOTE_MS)
+  }
+}
+onUnmounted(() => clearTimeout(noteTimer))
 
 // ── Move ──
 const moving = ref(false)
@@ -115,6 +147,7 @@ function closeTrash() {
         {{ count }} selected
         <span v-if="count" class="size">· {{ formatSize(totalSize) }}</span>
       </span>
+      <span v-if="compressNote" class="note">{{ compressNote }}</span>
     </div>
 
     <!-- Row 2: compress, move -->
@@ -122,14 +155,16 @@ function closeTrash() {
       <button
         type="button"
         class="bar-button"
-        :disabled="compressible.length === 0"
+        :disabled="compressNew.length === 0 || queueing"
         :aria-label="COMPRESS_LABEL"
         :title="
-          compressible.length === count
-            ? 'Save a smaller copy of each selected file, looking the same'
-            : `Save a smaller copy of the ${compressible.length} selected videos and photos, looking the same (other files are skipped)`
+          compressible.length > 0 && compressNew.length === 0
+            ? 'Already in the compress queue'
+            : compressible.length === count
+            ? 'Save a smaller copy of each selected file, looking the same (in the background)'
+            : `Save a smaller copy of the ${compressible.length} selected videos and photos, looking the same, in the background (other files are skipped)`
         "
-        @click="compressing = [...compressible]"
+        @click="compressSelected"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
       </button>
@@ -197,14 +232,6 @@ function closeTrash() {
     </div>
 
     <MovePicker v-if="moving" :entries="selected" @close="moving = false" @moved="onMoved" />
-
-    <!-- a copy of the list: the selection can't change under it while it runs -->
-    <CompressDialog
-      v-if="compressing"
-      :entries="compressing"
-      @changed="emit('changed')"
-      @close="compressing = null"
-    />
 
     <ModalDialog
       v-if="confirmingTrash"
@@ -289,6 +316,17 @@ function closeTrash() {
 
 .size {
   color: #8f88aa;
+}
+
+/* what the compress button just did, at the row's right end */
+.note {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: #b4aec8;
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* pushes the right group to the row's end */

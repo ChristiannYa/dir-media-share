@@ -87,6 +87,23 @@ export function emitCacheCleared(version: number) {
   bus.emit('cache', version)
 }
 
+/**
+ * A change in the compress queue (server/compressQueue.ts): a job's new state
+ * / progress, or the ended jobs that were cleared from the list. Every open
+ * page hears it as `event: compress`
+ */
+export type CompressEvent = { job: unknown } | { removed: string[] }
+
+export function emitCompress(event: CompressEvent) {
+  bus.emit('compress', event)
+}
+
+/** Calls `listener` for every compress queue change; returns a function that stops it */
+export function onCompress(listener: (event: CompressEvent) => void): () => void {
+  bus.on('compress', listener)
+  return () => bus.off('compress', listener)
+}
+
 /** Calls `listener` whenever a cache is cleared; returns a function that stops it */
 export function onCacheCleared(listener: (version: number) => void): () => void {
   bus.on('cache', listener)

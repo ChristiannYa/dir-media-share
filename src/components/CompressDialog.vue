@@ -1,168 +1,88 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, inject, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { compressVideo, CompressCancelled, discardCompressed, type Compression } from '@/api'
-import type { Entry } from '@/types'
+import { cancelCompress, clearCompressJobs, discardCompressJob } from '@/api'
+import { compressPercent, useCompressQueue } from '@/composables/useCompressQueue'
+import { REVEAL_ENTRY_KEY } from '@/composables/useGallery'
+import type { CompressJob, CompressJobState } from '@/types'
 import { formatSize } from '@/utils/format'
 
 /**
- * Saves compressed copies of videos and photos on the server, one after
- * another (each video encode already uses every CPU core), showing the
- * progress of each and the size before and after. Starts as soon as it opens.
+ * How the server's compress queue is going (useCompressQueue), opened from
+ * the top bar's button (CompressButton.vue). The server compresses in the
+ * background, so this can be closed and opened again at any time: nothing
+ * stops when it closes.
  *
- * Videos keep their resolution, frame timing and audio; photos their format
- * and size in pixels, each made as small as it gets without a visible change
- * (server/media/compressImage.ts). Each copy is saved next to its original,
- * named after the settings used ("clip [x264 crf20 slow].mp4", "photo [jpeg
- * q82].jpg"); the originals are never touched. A copy is only saved if it's
- * clearly smaller. For the batch:
- * - Stop: the copies already saved stay; the rest aren't made
- * - Cancel: also deletes the copies already saved
+ * One section per folder, in the order they were queued, each with its own
+ * progress. Each copy is saved next to its original, named after the
+ * settings used ("clip [x264 crf20 slow].mp4"); the originals are never
+ * touched. Per file: stop it (waiting or compressing), or delete the copy it
+ * saved (Discard). Per folder and for everything: stop the rest, clear the
+ * ended ones from the list.
  */
-const props = defineProps<{
-  /** Videos and photos to compress (isCompressible) */
-  entries: Entry[]
-}>()
-/** `changed`: copies were saved (or deleted again), so the listing should be reloaded */
-const emit = defineEmits<{ close: []; changed: [] }>()
+const emit = defineEmits<{ close: [] }>()
 
-type State =
-  | 'waiting'
-  | 'compressing'
-  | 'done'
-  /** No copy saved (it would hardly shrink, HDR…): `note` says why */
-  | 'skipped'
-  | 'failed'
-  | 'cancelled'
-  /** A copy was saved, then deleted again by Cancel */
-  | 'discarded'
+const { list, byFolder, activeCount, current, remainingWeight, isActive } = useCompressQueue()
 
-interface Item {
-  entry: Entry
-  state: State
-  /** Waiting for another compression on the server */
-  queued: boolean
-  /** 0–1 encoded */
-  fraction: number
-  /** × real time; null until known */
-  speed: number | null
-  before: number
-  /** Size of the copy; null until it's done */
-  after: number | null
-  /** Where the copy was saved (done only), so Cancel can delete it */
-  copyPath: string
-  note: string
-}
-
-const items = reactive<Item[]>(
-  props.entries.map(
-    (entry): Item => ({
-      entry,
-      state: 'waiting',
-      queued: false,
-      fraction: 0,
-      speed: null,
-      before: entry.size ?? 0,
-      after: null,
-      copyPath: '',
-      note: '',
-    }),
-  ),
-)
-/** Compressions in flight, so Stop / Cancel can stop them */
-const running = new Set<Compression>()
-const finished = ref(false)
-/** Cancel is deleting the copies */
-const discarding = ref(false)
-/** Resolves once every compression has ended (finished, failed or stopped) */
-let allEnded: Promise<void> = Promise.resolve()
+/** Opens a file's folder and scrolls to its card (App.vue) */
+const revealEntry = inject(REVEAL_ENTRY_KEY, null)
 
 /**
- * Seconds of video, which is what encoding time goes by (unknown: counted as
- * a minute). A photo takes about as long as a second of video
+ * A tap on a file goes to its card: the saved copy once there is one, else
+ * the original. The popup closes so the card shows
  */
-function weight(item: Item): number {
-  if (item.entry.kind === 'image') return 1
-  return item.entry.duration || 60
+function goTo(job: CompressJob) {
+  if (!revealEntry) return
+  const target = job.state === 'done' && job.copyPath ? job.copyPath : job.path
+  emit('close')
+  void revealEntry(target, true)
 }
 
-/** What the batch is called: "videos", "photos", or "files" if it has both */
-const noun = computed(() => {
-  const images = items.filter((i) => i.entry.kind === 'image').length
-  if (images === 0) return 'videos'
-  return images === items.length ? 'photos' : 'files'
-})
+/** Requests on their way, by job id / folder / 'all', so their buttons wait */
+const busy = ref(new Set<string>())
+const error = ref<string | null>(null)
 
-const totalWeight = computed(() => items.reduce((sum, i) => sum + weight(i), 0))
-/** Seconds of video not encoded yet */
-const remainingWeight = computed(() =>
-  items.reduce((sum, i) => {
-    if (i.state === 'waiting') return sum + weight(i)
-    if (i.state === 'compressing') return sum + weight(i) * (1 - i.fraction)
-    return sum
-  }, 0),
-)
-const percent = computed(() =>
-  totalWeight.value
-    ? Math.min(100, ((totalWeight.value - remainingWeight.value) / totalWeight.value) * 100)
-    : 0,
-)
-
-const countOf = (state: State) => items.filter((i) => i.state === state).length
-const doneCount = computed(() => countOf('done'))
-
-/**
- * Size of the whole batch before, and of its compressed versions (videos
- * without a copy count as they are)
- */
-const totalBefore = computed(() => items.reduce((sum, i) => sum + i.before, 0))
-const totalAfter = computed(() => items.reduce((sum, i) => sum + (i.after ?? i.before), 0))
-const saved = computed(() => totalBefore.value - totalAfter.value)
-const savedPercent = computed(() =>
-  totalBefore.value ? Math.round((saved.value / totalBefore.value) * 100) : 0,
-)
-
-const summary = computed(() => {
-  if (!finished.value) {
-    const ended = items.filter((i) => i.state !== 'waiting' && i.state !== 'compressing').length
-    return `${ended} of ${items.length} ${noun.value}`
+async function act(key: string, action: () => Promise<void>) {
+  if (busy.value.has(key)) return
+  busy.value.add(key)
+  error.value = null
+  try {
+    await action()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Failed'
+  } finally {
+    busy.value.delete(key)
   }
-  const parts = [`${doneCount.value} compressed`]
-  for (const [state, label] of [
-    ['skipped', 'no copy made'],
-    ['failed', 'failed'],
-    ['discarded', 'discarded'],
-    ['cancelled', 'stopped'],
-  ] as const) {
-    const n = countOf(state)
-    if (n) parts.push(`${n} ${label}`)
-  }
-  return parts.join(' · ')
-})
+}
+
+const stopJob = (job: CompressJob) => act(job.id, () => cancelCompress({ id: job.id }))
+const discardJob = (job: CompressJob) => act(job.id, () => discardCompressJob(job.id))
+const stopFolder = (folder: string) => act(`stop:${folder}`, () => cancelCompress({ folder }))
+const clearFolder = (folder: string) => act(`clear:${folder}`, () => clearCompressJobs(folder))
+const stopAll = () => act('stop-all', () => cancelCompress('all'))
+const clearAll = () => act('clear-all', () => clearCompressJobs())
+
+const endedCount = computed(() => list.value.length - activeCount.value)
 
 const title = computed(() => {
-  if (discarding.value) return 'Discarding…'
-  if (!finished.value) return 'Compressing…'
-  return items.some((i) => i.state === 'discarded') ? 'Compression cancelled' : 'Compression finished'
+  if (list.value.length === 0) return 'Compressions'
+  return activeCount.value > 0 ? 'Compressing…' : 'Compressions finished'
 })
 
-const subtitle = computed(() =>
-  items.length === 1 ? items[0]!.entry.name : `${items.length} ${noun.value}`,
-)
+const subtitle = computed(() => {
+  const n = list.value.length
+  if (n === 0) return 'Nothing in the queue'
+  const files = `${n} ${n === 1 ? 'file' : 'files'}`
+  return activeCount.value > 0 ? `${files} · ${activeCount.value} left` : files
+})
 
-/** Something could still be stopped, or deleted by Cancel */
-const canCancel = computed(() => !discarding.value && (!finished.value || doneCount.value > 0))
-
-/** The encode that's running: its speed tells how long the rest takes */
-const current = computed(() => items.find((i) => i.state === 'compressing') ?? null)
+const overallPercent = computed(() => compressPercent(list.value))
 
 const speedText = computed(() => {
-  const item = current.value
-  if (!item) return ''
-  if (item.queued) return 'waiting for another compression on the server…'
-  // photos take a second or so: no speed to show
-  if (item.entry.kind === 'image') return ''
-  return item.speed ? `${item.speed.toFixed(2)}× real time` : 'starting…'
+  const job = current.value
+  if (!job) return activeCount.value > 0 ? 'waiting…' : ''
+  if (job.kind === 'image') return `compressing ${job.name}`
+  return job.speed ? `${job.speed.toFixed(2)}× real time` : 'starting…'
 })
 
 /** Time left at the current speed */
@@ -175,220 +95,252 @@ const etaText = computed(() => {
   return `${(secs / 3600).toFixed(1)} h left`
 })
 
-function savingOf(item: Item): number {
-  return item.before && item.after !== null ? Math.round((1 - item.after / item.before) * 100) : 0
-}
-
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : 'Failed'
-}
-
-async function compress(item: Item) {
-  item.state = 'compressing'
-  const job = compressVideo(item.entry.path, (p) => {
-    item.queued = p.queued
-    item.fraction = p.fraction
-    item.speed = p.speed
-  })
-  running.add(job)
-  try {
-    const result = await job.done
-    item.before = result.before
-    item.after = result.after
-    item.state = result.compressed ? 'done' : 'skipped'
-    item.copyPath = result.path ?? ''
-    item.note = result.compressed ? `Saved as ${result.name ?? 'a copy'}` : (result.note ?? '')
-  } catch (e) {
-    if (e instanceof CompressCancelled) {
-      item.state = 'cancelled'
-    } else {
-      item.state = 'failed'
-      item.note = message(e)
-    }
-  } finally {
-    running.delete(job)
+/** Size of the originals that got a copy, and of those copies */
+function sizes(jobs: CompressJob[]) {
+  let before = 0
+  let after = 0
+  for (const j of jobs) {
+    if (j.state !== 'done' || j.before === null || j.after === null) continue
+    before += j.before
+    after += j.after
   }
+  return { before, after, saved: before - after }
 }
 
-/** One at a time: each takes the next waiting file until none are left */
-async function worker() {
-  for (;;) {
-    const next = items.find((i) => i.state === 'waiting') // skips ones stopped before their turn
-    if (!next) return
-    await compress(next)
+const totals = computed(() => sizes(list.value))
+
+/** The folder's name, and where it is (its parents) on the line under it */
+function folderName(folder: string): string {
+  return folder.split('/').at(-1) || 'Shared folder'
+}
+
+function folderParent(folder: string): string {
+  return folder.split('/').slice(0, -1).join(' / ')
+}
+
+/** "3 compressed · 1 failed", or how many are left while it runs */
+function folderSummary(jobs: CompressJob[]): string {
+  const left = jobs.filter(isActive).length
+  const parts: string[] = []
+  if (left) parts.push(`${left} of ${jobs.length} left`)
+  const count = (state: CompressJobState) => jobs.filter((j) => j.state === state).length
+  for (const [state, label] of [
+    ['done', 'compressed'],
+    ['skipped', 'no copy made'],
+    ['failed', 'failed'],
+    ['cancelled', 'stopped'],
+    ['discarded', 'discarded'],
+  ] as const) {
+    const n = count(state)
+    if (n) parts.push(`${n} ${label}`)
   }
+  return parts.join(' · ')
 }
 
-function start() {
-  allEnded = worker().then(() => {
-    finished.value = true
-  })
+function savingOf(job: CompressJob): number {
+  return job.before && job.after !== null ? Math.round((1 - job.after / job.before) * 100) : 0
 }
 
-/**
- * Stop: stops the running compression (the server keeps nothing of it) and
- * skips the ones still waiting. The copies already saved stay.
- */
-function stopAll() {
-  for (const item of items) if (item.state === 'waiting') item.state = 'cancelled'
-  for (const job of running) job.cancel()
+function progressText(job: CompressJob): string {
+  if (job.state === 'waiting') return 'in line'
+  if (job.kind === 'image') return 'compressing…'
+  return `${Math.floor(job.fraction * 100)}%`
 }
-
-/** Cancel: stops everything like Stop, then deletes the copies already saved */
-async function cancelAll() {
-  if (discarding.value) return
-  discarding.value = true
-  stopAll()
-  // a copy can still be saved while being stopped: wait, so it's deleted too
-  await allEnded
-  for (const item of items) {
-    if (item.state !== 'done' || !item.copyPath) continue
-    try {
-      await discardCompressed(item.copyPath)
-      item.state = 'discarded'
-      item.after = null
-      item.note = ''
-    } catch (e) {
-      // it stays in the folder: say so
-      item.note = `${item.note} · not discarded: ${message(e)}`
-    }
-  }
-  discarding.value = false
-}
-
-function close() {
-  if (!finished.value || discarding.value) return
-  if (items.some((i) => i.state === 'done' || i.state === 'discarded')) emit('changed')
-  emit('close')
-}
-
-/** Leaving or reloading the page would stop the compression: ask first */
-function onBeforeUnload(e: BeforeUnloadEvent) {
-  if (!finished.value || discarding.value) e.preventDefault()
-}
-
-onMounted(() => {
-  window.addEventListener('beforeunload', onBeforeUnload)
-  start()
-})
-onUnmounted(() => {
-  window.removeEventListener('beforeunload', onBeforeUnload)
-  // closing mid-way keeps the copies already saved, like Stop
-  stopAll()
-})
 </script>
 
 <template>
-  <ModalDialog
-    :title="title"
-    :subtitle="subtitle"
-    :locked="!finished || discarding"
-    @close="close"
-  >
-    <!-- Whole batch -->
-    <div class="overall">
-      <div class="bar" :class="{ finished, failed: finished && countOf('failed') === items.length }">
-        <div class="fill" :style="{ width: `${finished ? 100 : percent}%` }" />
-      </div>
-      <div class="overall-text">
-        <span>{{ summary }}</span>
-        <span v-if="!finished">{{ Math.floor(percent) }}%</span>
-      </div>
-      <div v-if="!finished && !discarding" class="overall-text speed">
-        <span>{{ speedText }}</span>
-        <span>{{ etaText }}</span>
-      </div>
-    </div>
-
-    <!-- Before and after of the whole batch -->
-    <div class="sizes">
-      <div class="size-box">
-        <span class="size-label">Before</span>
-        <span class="size-value">{{ formatSize(totalBefore) }}</span>
-      </div>
-      <span class="size-arrow" aria-hidden="true">→</span>
-      <div class="size-box">
-        <span class="size-label">After</span>
-        <span class="size-value" :class="{ smaller: saved > 0 }">{{ formatSize(totalAfter) }}</span>
-      </div>
-      <div class="size-box saved">
-        <span class="size-label">Smaller by</span>
-        <span class="size-value" :class="{ smaller: saved > 0 }">
-          {{ saved > 0 ? `${formatSize(saved)} · ${savedPercent}%` : '—' }}
-        </span>
-      </div>
-    </div>
-
-    <!-- Each video -->
-    <ul class="files">
-      <li v-for="(item, i) in items" :key="i" class="file" :class="item.state">
-        <div class="file-row">
-          <span class="file-state" :title="item.state">
-            <template v-if="item.state === 'done'">✓</template>
-            <template v-else-if="item.state === 'skipped'">=</template>
-            <template v-else-if="item.state === 'failed'">!</template>
-            <template v-else-if="item.state === 'cancelled'">–</template>
-            <template v-else-if="item.state === 'discarded'">✕</template>
-            <span v-else-if="item.state === 'compressing'" class="spinner" />
-            <template v-else>•</template>
-          </span>
-          <span class="file-name" :title="item.entry.name">{{ item.entry.name }}</span>
-          <span class="file-size">
-            <template v-if="item.state === 'compressing'">
-              {{
-                item.queued
-                  ? 'waiting'
-                  : item.entry.kind === 'image'
-                    ? 'compressing…'
-                    : `${Math.floor(item.fraction * 100)}%`
-              }}
-            </template>
-            <template v-else-if="item.state === 'done'">
-              {{ formatSize(item.before) }} → {{ formatSize(item.after ?? item.before) }}
-              <span class="saving">−{{ savingOf(item) }}%</span>
-            </template>
-            <template v-else>{{ formatSize(item.before) }}</template>
-          </span>
-        </div>
-        <div v-if="item.state === 'compressing' && item.entry.kind !== 'image'" class="bar small">
-          <div class="fill" :style="{ width: `${item.fraction * 100}%` }" />
-        </div>
-        <p v-if="item.note" class="file-note">{{ item.note }}</p>
-      </li>
-    </ul>
-
-    <p v-if="doneCount > 0 && !discarding" class="trash-note">
-      The originals are untouched: delete them once you've checked the copies to free the space.
+  <ModalDialog :title="title" :subtitle="subtitle" wide @close="emit('close')">
+    <p v-if="list.length === 0" class="empty">
+      Nothing is being compressed. Use Compress in a file's menu, or on a selection.
     </p>
 
-    <!-- Cancel on its own at the left (deletes the copies); Stop and Done
-         together at the right (keep the copies already saved) -->
+    <template v-else>
+      <!-- Everything together -->
+      <div class="overall">
+        <div class="bar" :class="{ finished: activeCount === 0 }">
+          <div class="fill" :style="{ width: `${activeCount === 0 ? 100 : overallPercent}%` }" />
+        </div>
+        <div class="overall-text">
+          <span>{{ endedCount }} of {{ list.length }} ended</span>
+          <span v-if="activeCount > 0">{{ Math.floor(overallPercent) }}%</span>
+        </div>
+        <div v-if="activeCount > 0" class="overall-text speed">
+          <span class="ellipsis">{{ speedText }}</span>
+          <span>{{ etaText }}</span>
+        </div>
+      </div>
+
+      <div v-if="totals.saved > 0" class="sizes">
+        <div class="size-box">
+          <span class="size-label">Before</span>
+          <span class="size-value">{{ formatSize(totals.before) }}</span>
+        </div>
+        <span class="size-arrow" aria-hidden="true">→</span>
+        <div class="size-box">
+          <span class="size-label">After</span>
+          <span class="size-value smaller">{{ formatSize(totals.after) }}</span>
+        </div>
+        <div class="size-box saved">
+          <span class="size-label">Smaller by</span>
+          <span class="size-value smaller">
+            {{ formatSize(totals.saved) }} ·
+            {{ Math.round((totals.saved / totals.before) * 100) }}%
+          </span>
+        </div>
+      </div>
+
+      <!-- One section per folder -->
+      <div class="folders">
+        <section v-for="group in byFolder" :key="group.folder" class="folder">
+          <header class="folder-head">
+            <div class="folder-titles">
+              <h3 class="folder-name" :title="group.folder || 'Shared folder'">
+                📁 {{ folderName(group.folder) }}
+              </h3>
+              <p v-if="folderParent(group.folder)" class="folder-parent">
+                {{ folderParent(group.folder) }}
+              </p>
+            </div>
+            <span class="folder-percent">
+              {{
+                group.jobs.some(isActive)
+                  ? `${Math.floor(compressPercent(group.jobs))}%`
+                  : 'Ended'
+              }}
+            </span>
+          </header>
+          <div class="bar small" :class="{ finished: !group.jobs.some(isActive) }">
+            <div class="fill" :style="{ width: `${compressPercent(group.jobs)}%` }" />
+          </div>
+          <div class="folder-summary">
+            <span>{{ folderSummary(group.jobs) }}</span>
+            <span class="folder-actions">
+              <button
+                v-if="group.jobs.some(isActive)"
+                type="button"
+                class="link-button danger"
+                :disabled="busy.has(`stop:${group.folder}`)"
+                title="Stop this folder's compressions; the copies already saved stay"
+                @click="stopFolder(group.folder)"
+              >
+                Stop
+              </button>
+              <button
+                v-if="group.jobs.some((j) => !isActive(j))"
+                type="button"
+                class="link-button"
+                :disabled="busy.has(`clear:${group.folder}`)"
+                title="Remove this folder's ended files from the list (the copies stay)"
+                @click="clearFolder(group.folder)"
+              >
+                Clear
+              </button>
+            </span>
+          </div>
+
+          <ul class="files">
+            <li v-for="job in group.jobs" :key="job.id" class="file" :class="job.state">
+              <div class="file-row">
+                <span class="file-state" :title="job.state">
+                  <template v-if="job.state === 'done'">✓</template>
+                  <template v-else-if="job.state === 'skipped'">=</template>
+                  <template v-else-if="job.state === 'failed'">!</template>
+                  <template v-else-if="job.state === 'cancelled'">–</template>
+                  <template v-else-if="job.state === 'discarded'">✕</template>
+                  <span v-else-if="job.state === 'compressing'" class="spinner" />
+                  <template v-else>•</template>
+                </span>
+                <button
+                  type="button"
+                  class="file-name file-link"
+                  :title="`Show ${job.name} in its folder`"
+                  @click="goTo(job)"
+                >
+                  {{ job.name }}
+                </button>
+                <span class="file-size">
+                  <template v-if="isActive(job)">{{ progressText(job) }}</template>
+                  <template v-else-if="job.state === 'done'">
+                    {{ formatSize(job.before ?? 0) }} → {{ formatSize(job.after ?? 0) }}
+                    <span class="saving">−{{ savingOf(job) }}%</span>
+                  </template>
+                  <template v-else-if="job.before">{{ formatSize(job.before) }}</template>
+                </span>
+                <button
+                  v-if="isActive(job)"
+                  type="button"
+                  class="icon-button"
+                  :disabled="busy.has(job.id)"
+                  aria-label="Stop"
+                  title="Stop this one"
+                  @click="stopJob(job)"
+                >
+                  ✕
+                </button>
+                <button
+                  v-else-if="job.state === 'done'"
+                  type="button"
+                  class="link-button danger"
+                  :disabled="busy.has(job.id)"
+                  title="Delete the copy for good; the original stays"
+                  @click="discardJob(job)"
+                >
+                  Discard
+                </button>
+              </div>
+              <div
+                v-if="job.state === 'compressing' && job.kind === 'video'"
+                class="bar tiny"
+              >
+                <div class="fill" :style="{ width: `${job.fraction * 100}%` }" />
+              </div>
+              <p v-if="job.note" class="file-note">{{ job.note }}</p>
+            </li>
+          </ul>
+        </section>
+      </div>
+
+      <p v-if="list.some((j) => j.state === 'done')" class="trash-note">
+        The originals are untouched: delete them once you've checked the copies to free the space.
+      </p>
+    </template>
+
+    <p v-if="error" class="error">{{ error }}</p>
+
     <div class="actions">
       <button
+        v-if="activeCount > 0"
+        type="button"
         class="button danger"
-        :disabled="!canCancel"
-        title="Stop and delete every copy this saved"
-        @click="cancelAll"
+        :disabled="busy.has('stop-all')"
+        title="Stop every compression; the copies already saved stay"
+        @click="stopAll"
       >
-        {{ discarding ? 'Discarding…' : 'Cancel' }}
+        Stop all
       </button>
       <span class="spacer" />
       <button
+        v-if="endedCount > 0"
+        type="button"
         class="button"
-        :disabled="finished || discarding"
-        title="Stop the rest; the copies already saved stay"
-        @click="stopAll"
+        :disabled="busy.has('clear-all')"
+        title="Remove the ended files from the list (the copies stay)"
+        @click="clearAll"
       >
-        Stop
+        Clear ended
       </button>
-      <button class="button primary" :disabled="!finished || discarding" @click="close">
-        Done
-      </button>
+      <button type="button" class="button primary" @click="emit('close')">Close</button>
     </div>
   </ModalDialog>
 </template>
 
 <style scoped>
+.empty {
+  margin: 0;
+  color: #8f88aa;
+  font-size: 0.85rem;
+}
+
 /* ── Progress bars (as in UploadDialog) ── */
 .bar {
   height: 0.5rem;
@@ -398,7 +350,11 @@ onUnmounted(() => {
 }
 
 .bar.small {
-  height: 0.25rem;
+  height: 0.3rem;
+}
+
+.bar.tiny {
+  height: 0.2rem;
   margin-top: 0.4rem;
 }
 
@@ -406,15 +362,11 @@ onUnmounted(() => {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #2d6cdf, #8a5cf6);
-  transition: width 0.2s linear;
+  transition: width 0.3s linear;
 }
 
 .bar.finished .fill {
   background: #3fae62;
-}
-
-.bar.failed .fill {
-  background: #c0392b;
 }
 
 .overall {
@@ -434,6 +386,13 @@ onUnmounted(() => {
 
 .overall-text.speed {
   color: #8f88aa;
+}
+
+.ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── Before / after ── */
@@ -479,21 +438,89 @@ onUnmounted(() => {
   color: #666;
 }
 
+/* ── Folder sections ── */
+.folders {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 50dvh;
+  overflow-y: auto;
+}
+
+.folder {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.folder-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.folder-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.folder-name {
+  margin: 0;
+  overflow: hidden;
+  color: #f0ecff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-parent {
+  margin: 0.1rem 0 0;
+  overflow: hidden;
+  color: #777;
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-percent {
+  flex: none;
+  color: #aaa;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.folder-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  color: #8f88aa;
+  font-size: 0.72rem;
+}
+
+.folder-actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
 /* ── File list ── */
 .files {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  max-height: 40dvh;
-  margin: 0;
+  gap: 0.3rem;
+  margin: 0.15rem 0 0;
   padding: 0;
-  overflow-y: auto;
   list-style: none;
 }
 
 .file {
-  padding: 0.55rem 0.7rem;
-  border-radius: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.55rem;
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -542,6 +569,21 @@ onUnmounted(() => {
   color: #ddd;
 }
 
+/* the name is a button that leads to the file's card */
+.file-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-link:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
 .file-size {
   flex: none;
   color: #888;
@@ -558,12 +600,19 @@ onUnmounted(() => {
   margin: 0.25rem 0 0 1.8rem;
   color: #999;
   font-size: 0.72rem;
+  overflow-wrap: anywhere;
 }
 
 .trash-note {
   margin: 0;
   color: #8f88aa;
   font-size: 0.75rem;
+}
+
+.error {
+  margin: 0;
+  color: #f07060;
+  font-size: 0.8rem;
 }
 
 .spinner {
@@ -582,13 +631,59 @@ onUnmounted(() => {
 }
 
 /* ── Buttons ── */
+.icon-button {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  color: #aaa;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.18);
+  color: #ff8a7a;
+}
+
+.link-button {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #b4aec8;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.link-button:hover:not(:disabled) {
+  color: #fff;
+}
+
+.link-button.danger {
+  color: #f07060;
+}
+
+.link-button.danger:hover:not(:disabled) {
+  color: #ff8a7a;
+}
+
+.icon-button:disabled,
+.link-button:disabled,
+.button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-/* splits Cancel (left) from Stop and Done (right) */
 .spacer {
   flex: 1;
 }
@@ -608,11 +703,6 @@ onUnmounted(() => {
   color: #fff;
 }
 
-.button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .button.primary {
   border-color: #2d6cdf;
   background: #2d6cdf;
@@ -623,7 +713,6 @@ onUnmounted(() => {
   background: #3b7bf0;
 }
 
-/* throws the copies away: red text, like the upload dialog's Cancel */
 .button.danger {
   color: #f07060;
   border-color: rgba(231, 76, 60, 0.35);

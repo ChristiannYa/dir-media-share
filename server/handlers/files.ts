@@ -8,6 +8,7 @@ import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { isDevMode } from '../appMode.ts'
 import { cacheFile, cacheName, exists } from '../cache.ts'
+import { moveCompressedNew, renameCompressedNew, setCompressedSeen } from '../compressedNew.ts'
 import { moveFavorite, moveFavorites, renameFavorites, setFavorite } from '../favorites.ts'
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from '../consts/fileTypes.ts'
 import { forgetHeatmap, moveHeatmaps } from '../heatmap.ts'
@@ -70,6 +71,9 @@ export const trashFile: Handler = async (_req, res, url) => {
   )
   await forgetHeatmap(url.searchParams.get('path') ?? '').catch((e) =>
     console.error('Updating the heatmaps failed:', e),
+  )
+  await setCompressedSeen(url.searchParams.get('path') ?? '').catch((e) =>
+    console.error('Updating the new compressed copies failed:', e),
   )
   sendJson(res, { trashed: await relativePath(file) })
 }
@@ -183,6 +187,9 @@ export const moveFile: Handler = async (_req, res, url) => {
   )
   await moveHeatmaps([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
+  )
+  await moveCompressedNew([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
+    console.error('Updating the new compressed copies failed:', e),
   )
   sendJson(res, { path: await relativePath(target) })
 }
@@ -411,6 +418,9 @@ export const numberFiles: Handler = async (_req, res, url) => {
   await moveHeatmaps(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
   )
+  await moveCompressedNew(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
+    console.error('Updating the new compressed copies failed:', e),
+  )
 
   // stills: the same picture, under the name made from the new path
   for (const p of videos) {
@@ -491,6 +501,10 @@ export const renameEntry: Handler = async (_req, res, url) => {
   )
   await moveHeatmaps([[rel, newRel]]).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
+  )
+  // a folder's: everything inside it
+  await renameCompressedNew(rel, newRel).catch((e) =>
+    console.error('Updating the new compressed copies failed:', e),
   )
   sendJson(res, { path: newRel })
 }

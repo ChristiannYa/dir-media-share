@@ -1,5 +1,10 @@
 import { reactive, watch } from 'vue'
 import { setSharedCacheVersion } from '@/api'
+import {
+  applyCompressEvent,
+  clearCompressQueue,
+  refreshCompressQueue,
+} from '@/composables/useCompressQueue'
 import { API, PREVIEW_RECHECK_MS } from '@/constants'
 
 /** Which kind of preview a server job builds (matches server/jobEvents.ts) */
@@ -62,6 +67,16 @@ function connect() {
       // malformed: the next page load gets the version from /api/info anyway
     }
   })
+  // the compress queue (useCompressQueue): each change, and the whole list
+  // again on every (re)connect, in case changes were missed while it was down
+  stream.addEventListener('compress', (message: MessageEvent<string>) => {
+    try {
+      applyCompressEvent(JSON.parse(message.data) as Parameters<typeof applyCompressEvent>[0])
+    } catch {
+      // malformed: the next reconnect fetches the whole list
+    }
+  })
+  stream.addEventListener('open', () => void refreshCompressQueue())
 }
 
 /**
@@ -72,6 +87,7 @@ export function disconnectJobEvents() {
   stream?.close()
   stream = null
   states.clear()
+  clearCompressQueue()
 }
 
 /**

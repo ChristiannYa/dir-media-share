@@ -1,100 +1,99 @@
-// Saving compressed copies of videos and photos, and deleting them again.
+// The compress queue (server/compressQueue.ts): adding videos and photos to
+// it, stopping them, deleting copies again, clearing the ended ones, and the
+// "Compressed!" banner of copies not opened yet (server/compressedNew.ts).
 
-import path from 'node:path'
-import { sendJson, type Handler } from '../http.ts'
-import { isVideoName } from '../listing.ts'
-import { compressVideo, CompressError, discardCompressed } from '../media/compress.ts'
-import { compressImage, isCompressibleImageName } from '../media/compressImage.ts'
-import { resolveFile } from '../paths.ts'
+import { setCompressedSeen } from '../compressedNew.ts'
+import {
+  cancelCompress,
+  clearEndedCompress,
+  compressJobs,
+  discardCompressJob,
+  enqueueCompress,
+  jobIdsIn,
+  type CompressRequest,
+} from '../compressQueue.ts'
+import { readJson, sendJson, type Handler } from '../http.ts'
+import { CompressError } from '../media/compress.ts'
 
-/** Files being compressed (real paths), so one can't be compressed twice at once */
-const busy = new Set<string>()
+/** Largest body POST /api/compress/queue accepts */
+const MAX_QUEUE_BODY = 1024 * 1024
 
-/** One line of the compress answer (newline-delimited JSON) */
-type CompressMessage =
-  | { type: 'queued' }
-  | { type: 'started' }
-  | { type: 'progress'; fraction: number; speed: number | null }
-  | {
-      type: 'done'
-      before: number
-      after: number
-      compressed: boolean
-      path?: string
-      name?: string
-      note?: string
-    }
-  | { type: 'error'; error: string }
+/** GET /api/compress/jobs : every job of the queue, oldest first, as `{ jobs }` */
+export const listCompressJobs: Handler = async (_req, res) => {
+  sendJson(res, { jobs: compressJobs() })
+}
 
 /**
- * POST /api/file/compress?path= : saves a compressed copy of a video
- * (server/media/compress.ts) or a photo (server/media/compressImage.ts) next
- * to it. Takes as long as the encode, so the answer is a stream of JSON
- * lines: queued, started, progress… (videos only), then done or error.
- * Closing the request stops it; no copy is kept then.
+ * POST /api/compress/queue with a JSON body `{ files: [{ path, duration? }] }`:
+ * adds them to the queue, which compresses them in the background. Answers
+ * `{ queued, refused }`: the new jobs, and the files refused with why.
  */
-export const compressFile: Handler = async (_req, res, url) => {
-  const file = await resolveFile(url.searchParams.get('path') ?? '')
-  if (!file) return sendJson(res, { error: 'File not found' }, 404)
-  const name = path.basename(file)
-  const isImage = isCompressibleImageName(name)
-  if (!isImage && !isVideoName(name)) {
-    return sendJson(res, { error: 'Only videos and photos can be compressed' }, 415)
-  }
-  if (busy.has(file)) return sendJson(res, { error: 'It is already being compressed' }, 409)
-  busy.add(file)
-
-  // the browser went away (Stop, Cancel, closed tab): stop ffmpeg
-  const abort = new AbortController()
-  res.on('close', () => {
-    if (!res.writableFinished) abort.abort()
-  })
-
-  res.writeHead(200, {
-    'Content-Type': 'application/x-ndjson',
-    'Cache-Control': 'no-store',
-    'X-Accel-Buffering': 'no', // a reverse proxy in front must not hold the lines back
-  })
-  const send = (message: CompressMessage) => {
-    if (!res.destroyed) res.write(`${JSON.stringify(message)}\n`)
-  }
-
-  send({ type: 'queued' })
+export const queueCompress: Handler = async (req, res) => {
+  let body: unknown
   try {
-    const result = await (isImage ? compressImage : compressVideo)(file, {
-      signal: abort.signal,
-      onStart: () => send({ type: 'started' }),
-      onProgress: (p) => send({ type: 'progress', fraction: p.fraction, speed: p.speed }),
-    })
-    send({ type: 'done', ...result })
+    body = await readJson(req, MAX_QUEUE_BODY)
+  } catch {
+    return sendJson(res, { error: 'Invalid request' }, 400)
+  }
+  const files = (body as { files?: unknown } | null)?.files
+  if (!Array.isArray(files)) return sendJson(res, { error: 'Invalid request' }, 400)
+  const requests: CompressRequest[] = files
+    .filter((f): f is CompressRequest => typeof (f as CompressRequest)?.path === 'string')
+    .map((f) => ({ path: f.path, duration: typeof f.duration === 'number' ? f.duration : null }))
+  sendJson(res, await enqueueCompress(requests))
+}
+
+/**
+ * POST /api/compress/cancel?id= (one job) | ?folder= (a folder's) | ?all=1 :
+ * stops them, waiting or compressing; the copies already saved stay. Answers
+ * `{ cancelled }`, how many were stopped.
+ */
+export const cancelCompressJobs: Handler = async (_req, res, url) => {
+  const id = url.searchParams.get('id')
+  const folder = url.searchParams.get('folder')
+  const ids = id
+    ? [id]
+    : folder !== null
+      ? jobIdsIn(folder)
+      : url.searchParams.get('all') === '1'
+        ? jobIdsIn()
+        : null
+  if (!ids) return sendJson(res, { error: 'Say which: id, folder or all' }, 400)
+  sendJson(res, { cancelled: cancelCompress(ids) })
+}
+
+/**
+ * POST /api/compress/discard?id= : deletes the copy that job saved in the
+ * last day, for good; the original stays. Answers `{ job }`.
+ */
+export const discardCompressJobHandler: Handler = async (_req, res, url) => {
+  try {
+    sendJson(res, { job: await discardCompressJob(url.searchParams.get('id') ?? '') })
   } catch (e) {
-    if (!abort.signal.aborted) {
-      if (!(e instanceof CompressError)) console.error(`Compressing ${file} failed:`, e)
-      send({
-        type: 'error',
-        error: e instanceof CompressError ? e.message : 'It could not be compressed',
-      })
-    }
-  } finally {
-    busy.delete(file)
-    res.end()
+    if (e instanceof CompressError) return sendJson(res, { error: e.message }, 403)
+    console.error('Discarding a compressed copy failed:', e)
+    sendJson(res, { error: 'The copy could not be deleted' }, 500)
   }
 }
 
 /**
- * POST /api/file/compress/discard?path= : deletes a copy a compression saved
- * in the last day (the compress dialog's Cancel). Any other file is refused.
+ * POST /api/compress/clear?folder= : removes the ended jobs of that folder
+ * (no folder: of every folder) from the list. Answers `{ removed }`.
  */
-export const discardCompressedFile: Handler = async (_req, res, url) => {
-  const file = await resolveFile(url.searchParams.get('path') ?? '')
-  if (!file) return sendJson(res, { error: 'File not found' }, 404)
+export const clearCompressJobs: Handler = async (_req, res, url) => {
+  sendJson(res, { removed: clearEndedCompress(url.searchParams.get('folder') ?? undefined) })
+}
+
+/**
+ * POST /api/compress/seen?path= : the compressed copy was opened in the
+ * viewer: its card no longer shows the "Compressed!" banner, on any device.
+ * Answers `{ seen }` (false if it had none).
+ */
+export const compressedSeen: Handler = async (_req, res, url) => {
   try {
-    if (!(await discardCompressed(file))) {
-      return sendJson(res, { error: 'Only copies that were just compressed can be discarded' }, 403)
-    }
+    sendJson(res, { seen: await setCompressedSeen(url.searchParams.get('path') ?? '') })
   } catch (e) {
-    console.error(`Discarding the compressed copy ${file} failed:`, e)
-    return sendJson(res, { error: 'The copy could not be deleted' }, 500)
+    console.error('Saving the new compressed copies failed:', e)
+    sendJson(res, { error: 'It could not be saved' }, 500)
   }
-  sendJson(res, { discarded: true })
 }

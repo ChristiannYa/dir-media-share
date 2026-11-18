@@ -147,7 +147,7 @@ onUnmounted(() => clearTimeout(statusTimer))
         :key="item.label"
         class="menu-item"
         :aria-label="iconOnly ? labelOf(item) : undefined"
-        :title="iconOnly ? item.label : undefined"
+        :title="item.disabled && item.disabledReason ? item.disabledReason : iconOnly ? item.label : undefined"
         :class="{
           'icon-only': iconOnly,
           danger: item.danger,
@@ -155,7 +155,7 @@ onUnmounted(() => clearTimeout(statusTimer))
           done: status?.item === item && !status.failed,
           failed: status?.item === item && status.failed,
         }"
-        :disabled="running !== null"
+        :disabled="running !== null || item.disabled"
         @click="pick(item)"
       >
         <!-- while its action runs, a spinner takes the icon's place. Icon

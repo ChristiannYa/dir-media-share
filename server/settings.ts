@@ -11,15 +11,6 @@ import { mkdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CACHE_MAX_AGE_DAYS, CACHE_MAX_GB } from './consts/caching.ts'
 import {
-  COMPRESS_CRF,
-  COMPRESS_JPEG_QUALITY,
-  COMPRESS_MIN_SAVING,
-  COMPRESS_PNG_QUALITY,
-  COMPRESS_PRESET,
-  COMPRESS_VP9_CRF,
-  COMPRESS_WEBP_QUALITY,
-} from './consts/compress.ts'
-import {
   FOLDER_PREVIEW_ITEMS,
   FOLDER_PREVIEW_SLICES_PER_VIDEO,
   FOLDER_PREVIEW_VARIANTS,
@@ -69,13 +60,6 @@ export const SERVER_SETTING_DEFAULTS = {
   probeMaxJobs: PROBE_MAX_JOBS,
   cacheMaxAgeDays: CACHE_MAX_AGE_DAYS,
   cacheMaxGB: CACHE_MAX_GB,
-  compressCrf: COMPRESS_CRF,
-  compressPreset: COMPRESS_PRESET as string,
-  compressVp9Crf: COMPRESS_VP9_CRF,
-  compressMinSaving: COMPRESS_MIN_SAVING,
-  compressJpegQuality: COMPRESS_JPEG_QUALITY,
-  compressPngQuality: COMPRESS_PNG_QUALITY,
-  compressWebpQuality: COMPRESS_WEBP_QUALITY,
   lockAfterMinutes: LOCK_AFTER_MINUTES,
   idleShutdownMinutes: IDLE_SHUTDOWN_MINUTES,
 }
@@ -337,78 +321,6 @@ export const SERVER_SETTING_GROUPS: Array<{
     ],
   },
   {
-    title: 'Compressing',
-    subsections: [
-      { title: 'Videos', keys: ['compressCrf', 'compressPreset', 'compressVp9Crf'] },
-      { title: 'Photos', keys: ['compressJpegQuality', 'compressPngQuality', 'compressWebpQuality'] },
-      { title: 'Both', keys: ['compressMinSaving'] },
-    ],
-    fields: [
-      {
-        key: 'compressJpegQuality',
-        label: 'JPEG quality',
-        help: 'Highest quality a compressed JPEG keeps. Photos saved above it are re-encoded at it; the rest are only optimized losslessly. ~80–85 is hard to tell from the original',
-        type: 'number',
-        min: 40,
-        max: 100,
-        step: 1,
-      },
-      {
-        key: 'compressPngQuality',
-        label: 'PNG quality',
-        help: 'PNGs get their colors reduced (pngquant), aiming for this. If one can\'t stay within 20 of it, it would visibly change, so no copy is made',
-        type: 'number',
-        min: 20,
-        max: 100,
-        step: 1,
-      },
-      {
-        key: 'compressWebpQuality',
-        label: 'WebP quality',
-        help: 'Quality WebP photos are re-encoded at (cwebp). Lower is smaller',
-        type: 'number',
-        min: 40,
-        max: 100,
-        step: 1,
-      },
-      {
-        key: 'compressCrf',
-        label: 'Quality (CRF)',
-        help: 'For .mp4, .mov and .mkv (H.264). Lower is better and bigger. ~18 looks near-lossless, 20 is hard to tell from the original, 23 is x264\'s default',
-        type: 'number',
-        min: 0,
-        max: 51,
-        step: 1,
-      },
-      {
-        key: 'compressPreset',
-        label: 'Encoder preset',
-        help: 'Slower presets make smaller files at the same quality but take longer. "slow" is a good balance',
-        type: 'select',
-        options: PRESETS,
-      },
-      {
-        key: 'compressVp9Crf',
-        label: 'WebM quality (CRF)',
-        help: 'For .webm (VP9, as WebM can\'t hold H.264). Lower is better and bigger; ~31 suits 1080p',
-        type: 'number',
-        min: 0,
-        max: 63,
-        step: 1,
-      },
-      {
-        key: 'compressMinSaving',
-        label: 'Least saving',
-        help: 'A compressed copy is only saved if it\'s at least this much smaller than the original; otherwise it\'s thrown away',
-        type: 'number',
-        min: 0,
-        max: 90,
-        step: 1,
-        unit: '%',
-      },
-    ],
-  },
-  {
     title: 'Other',
     fields: [
       {
@@ -450,7 +362,7 @@ export const SERVER_SETTING_GROUPS: Array<{
       {
         key: 'idleShutdownMinutes',
         label: 'Shut down when idle',
-        help: 'Minutes without any activity after which the server stops by itself, like the shutdown button. Activity is anything any device asks of it (opening folders, loading stills and previews, playing a video…); something still running, like an upload or a compression, counts the whole time. A tab just left open doesn\'t count. 0 = never',
+        help: 'Minutes without any activity after which the server stops by itself, like the shutdown button. Activity is anything any device asks of it (opening folders, loading stills and previews, playing a video…); something still running, like an upload, counts the whole time, and while the compress queue has anything waiting or compressing the timer keeps extending itself, so it only starts counting once the last one is done. A tab just left open doesn\'t count. 0 = never',
         type: 'number',
         min: 0,
         max: 1440,

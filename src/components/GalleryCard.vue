@@ -83,6 +83,19 @@ const showFolderViews = computed(
   () => recordsVideoData.value && !!props.entry.plays && props.entry.path.includes('/'),
 )
 
+/**
+ * A compressed copy that wasn't opened yet (server/compressedNew.ts): a
+ * "Compressed!" band across the top of its preview until it's opened in the
+ * viewer (App.vue). Only on the grid's cards, not the sections' smaller ones
+ */
+const showCompressedBanner = computed(
+  () =>
+    !!props.entry.compressed_new &&
+    (props.entry.kind === 'video' || props.entry.kind === 'image') &&
+    !props.viewsOnly &&
+    !props.bare,
+)
+
 /** "1 view", "12 views" */
 function playsLabel(n: number): string {
   return n === 1 ? '1 view' : `${n} views`
@@ -443,6 +456,7 @@ watch(
         selected,
         'link-only': linkOnly,
         'views-only': viewsOnly,
+        'compressed-new': showCompressedBanner,
       },
     ]"
     v-on="hold.listeners"
@@ -594,6 +608,7 @@ watch(
         @load="onImageLoad"
         @error="onMediaError(trackKey)"
       />
+      <span v-if="showCompressedBanner" class="compressed-banner">Compressed!</span>
       <!-- the app led you here: the loaded sweep, once (see the script) -->
       <div
         v-if="sweepStyle"
@@ -700,6 +715,8 @@ watch(
              lasts the sweep -->
         <span class="sweep-frost force-glass" />
       </div>
+      <!-- a compressed copy not opened yet: a band across the top -->
+      <span v-if="showCompressedBanner" class="compressed-banner">Compressed!</span>
       <!-- top-left: how many times it was played (not in selection mode: the check is
            there); viewsOnly: bottom-right, where the folder cards have theirs.
            Pops in / out when the app mode (or selection mode) switches -->
@@ -1438,6 +1455,58 @@ watch(
   width: 0.8rem;
   height: 0.8rem;
   fill: currentColor;
+}
+
+/* ── "Compressed!" ──
+   A compressed copy not opened yet: a band across the top of the preview,
+   rounded with it (the media box clips it). Under the selection check, which
+   moves down below it with the top badges */
+.compressed-banner {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* the top badges and the selection check move down by this much (below) */
+  height: 1.3rem;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(
+    90deg,
+    rgba(32, 140, 110, 0.94),
+    rgba(63, 174, 98, 0.94) 50%,
+    rgba(32, 140, 110, 0.94)
+  );
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  color: #fff;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  animation: banner-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes banner-in {
+  from {
+    transform: translateY(-100%);
+  }
+}
+
+.card.compressed-new .plays-badge:not(.views-only),
+.card.compressed-new .quality-badge {
+  top: calc(var(--badge-inset) + 1.3rem);
+}
+
+.card.compressed-new .check {
+  top: calc(0.45rem + 1.3rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compressed-banner {
+    animation: none;
+  }
 }
 
 /* how many times it was played, top-left (the quality is top-right) */

@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { API, CACHE_VERSION_STORAGE_KEY, FILES_PREFIX } from '@/constants'
 import type { FieldGroup } from '@/settings'
-import type { Entry, FolderRef, ServerInfo, Storyboard } from '@/types'
+import type { CompressJob, Entry, FolderRef, ServerInfo, Storyboard } from '@/types'
 
 // ── Cache version ──
 
@@ -549,127 +549,65 @@ export async function discardUpload(path: string): Promise<void> {
 
 // ── Compressing ──
 
-/** Outcome of a compression */
-export interface Compressed {
-  /** Size of the original, in bytes */
-  before: number
-  /** Size of the copy (the same as before if none was saved) */
-  after: number
-  /** False if no copy was saved (e.g. it would hardly shrink); `note` says why */
-  compressed: boolean
-  /** The copy's path inside the shared folder and its name (compressed only) */
-  path?: string
-  name?: string
-  note?: string
-}
+// The server compresses in the background (server/compressQueue.ts); its
+// changes arrive on the job events stream (useJobEvents → useCompressQueue)
 
-export interface CompressProgress {
-  /** Waiting for another compression on the server to finish */
-  queued: boolean
-  /** 0–1 of the video encoded */
-  fraction: number
-  /** × real time (2 = a minute of video takes 30 s); null until known */
-  speed: number | null
+/** The server's compress jobs, oldest first */
+export async function fetchCompressJobs(): Promise<CompressJob[]> {
+  const res = await fetch(API.compressJobs)
+  if (!res.ok) throw new Error(`Loading the compress queue failed (${res.status})`)
+  return ((await res.json()) as { jobs: CompressJob[] }).jobs
 }
-
-export interface Compression {
-  done: Promise<Compressed>
-  /**
-   * Stops it; `done` then rejects with a CompressCancelled. The server stops
-   * ffmpeg and keeps no copy.
-   */
-  cancel(): void
-}
-
-export class CompressCancelled extends Error {
-  constructor() {
-    super('Cancelled')
-  }
-}
-
-/** One line of the server's answer (see server/handlers/compress.ts) */
-type CompressMessage =
-  | { type: 'queued' }
-  | { type: 'started' }
-  | { type: 'progress'; fraction: number; speed: number | null }
-  | ({ type: 'done' } & Compressed)
-  | { type: 'error'; error: string }
 
 /**
- * Has the server save a compressed copy of a video next to it (the original
- * isn't touched). The server answers with a line of JSON per step while
- * ffmpeg runs; `onProgress` gets each.
+ * Adds videos and photos to the server's compress queue. Answers the new jobs,
+ * and the files refused with why (already queued, not a video or photo…)
  */
-export function compressVideo(
-  path: string,
-  onProgress: (p: CompressProgress) => void,
-): Compression {
-  const controller = new AbortController()
-  const { signal } = controller
-
-  async function work(): Promise<Compressed> {
-    const res = await fetch(`${API.compressFile}?path=${encodeURIComponent(path)}`, {
-      method: 'POST',
-      signal,
-    })
-    if (!res.ok || !res.body) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string }
-      throw new Error(data.error ?? `Compressing failed (${res.status})`)
-    }
-    const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
-    let buffer = ''
-    for (;;) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += value
-      let nl: number
-      while ((nl = buffer.indexOf('\n')) >= 0) {
-        const line = buffer.slice(0, nl).trim()
-        buffer = buffer.slice(nl + 1)
-        if (!line) continue
-        const message = JSON.parse(line) as CompressMessage
-        switch (message.type) {
-          case 'queued':
-            onProgress({ queued: true, fraction: 0, speed: null })
-            break
-          case 'started':
-            onProgress({ queued: false, fraction: 0, speed: null })
-            break
-          case 'progress':
-            onProgress({ queued: false, fraction: message.fraction, speed: message.speed })
-            break
-          case 'done':
-            return {
-              before: message.before,
-              after: message.after,
-              compressed: message.compressed,
-              path: message.path,
-              name: message.name,
-              note: message.note,
-            }
-          case 'error':
-            throw new Error(message.error)
-        }
-      }
-    }
-    // the stream ended without an outcome (server restarted, connection cut)
-    throw new Error('Connection lost')
-  }
-
-  const done = work().catch((e: unknown) => {
-    if (signal.aborted) throw new CompressCancelled()
-    if (e instanceof TypeError) throw new Error('Connection lost') // fetch's network errors
-    throw e
+export async function queueCompress(
+  entries: Entry[],
+): Promise<{ queued: CompressJob[]; refused: Array<{ path: string; error: string }> }> {
+  const res = await fetch(API.compressQueue, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      files: entries.map((e) => ({ path: e.path, duration: e.duration ?? null })),
+    }),
   })
-  return { done, cancel: () => controller.abort() }
+  const data = (await res.json().catch(() => ({}))) as {
+    queued?: CompressJob[]
+    refused?: Array<{ path: string; error: string }>
+    error?: string
+  }
+  if (!res.ok) throw new Error(data.error ?? `Compressing failed (${res.status})`)
+  return { queued: data.queued ?? [], refused: data.refused ?? [] }
 }
 
-/**
- * Deletes a copy saved by a compression in the last day (the compress
- * dialog's Cancel); the server refuses any other file
- */
-export async function discardCompressed(path: string): Promise<void> {
-  await post(`${API.discardCompressed}?path=${encodeURIComponent(path)}`)
+/** Stops compress jobs (one, a folder's, or all), waiting or running; the copies already saved stay */
+export async function cancelCompress(which: { id: string } | { folder: string } | 'all'): Promise<void> {
+  const query =
+    which === 'all'
+      ? 'all=1'
+      : 'id' in which
+        ? `id=${encodeURIComponent(which.id)}`
+        : `folder=${encodeURIComponent(which.folder)}`
+  await post(`${API.compressCancel}?${query}`)
+}
+
+/** Deletes the copy a compress job saved (in the last day); the original stays */
+export async function discardCompressJob(id: string): Promise<void> {
+  await post(`${API.compressDiscard}?id=${encodeURIComponent(id)}`)
+}
+
+/** Removes the ended compress jobs of a folder (none given: all) from the list */
+export async function clearCompressJobs(folder?: string): Promise<void> {
+  await post(
+    folder === undefined ? API.compressClear : `${API.compressClear}?folder=${encodeURIComponent(folder)}`,
+  )
+}
+
+/** A compressed copy was opened: its card loses the "Compressed!" banner, on every device */
+export async function markCompressedSeen(path: string): Promise<void> {
+  await post(`${API.compressSeen}?path=${encodeURIComponent(path)}`)
 }
 
 export async function shutdownServer(): Promise<void> {

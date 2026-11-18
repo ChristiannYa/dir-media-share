@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import AppModeButton from '@/components/AppModeButton.vue'
 import AppModeImage from '@/components/AppModeImage.vue'
+import CompressButton from '@/components/CompressButton.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
@@ -310,6 +311,8 @@ onUnmounted(() => clearTimeout(settleTimer))
       />
       <!-- the app mode's image: a tap opens the popup that changes it -->
       <AppModeImage editable />
+      <!-- the compress queue's progress: only while it lists anything; a tap opens its popup -->
+      <CompressButton />
       <button class="bar-btn settings-btn" aria-label="Settings" @click="emit('settings')">
         <!-- gear -->
         <svg viewBox="0 0 24 24" aria-hidden="true" class="filled">
