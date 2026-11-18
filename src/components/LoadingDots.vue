@@ -29,8 +29,8 @@ const reverse = Math.random() < 0.5
 .dots {
   --lap: 2.4s; /* time for one full lap */
   position: absolute;
-  /* the middle of the ring (styles/ring.css), just outside the card */
-  inset: calc(-1 * (var(--card-border) + var(--ring-width) / 2));
+  /* the middle of the ring (styles/ring.css), just inside the card's edge */
+  inset: calc(var(--ring-width) / 2);
   z-index: 2;
   pointer-events: none;
 }
@@ -46,7 +46,9 @@ const reverse = Math.random() < 0.5
   box-shadow:
     0 0 6px 2px var(--dot-color),
     0 0 14px 4px var(--dot-color);
-  offset-path: inset(0 round calc(var(--card-radius) + var(--ring-width) / 2));
+  offset-path: inset(
+    0 round max(0px, calc(var(--card-radius) - var(--card-border) - var(--ring-width) / 2))
+  );
   offset-anchor: 50% 50%;
   offset-rotate: 0deg;
   /* runs around the border; fades through the theme colors every two laps */

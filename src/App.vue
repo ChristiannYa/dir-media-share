@@ -777,7 +777,7 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   grid-auto-rows: 1px;
-  column-gap: calc(1rem + 2 * var(--card-outset));
+  column-gap: calc(var(--grid-gap) + 2 * var(--card-outset));
   padding: var(--card-outset);
   /* each card keeps its own height instead of filling its rows */
   align-items: start;
@@ -786,7 +786,7 @@ onUnmounted(() => {
 @media (max-width: 480px) {
   .grid {
     grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    column-gap: calc(0.75rem + 2 * var(--card-outset));
+    column-gap: calc(0.75 * var(--grid-gap) + 2 * var(--card-outset));
   }
 }
 
@@ -800,7 +800,7 @@ onUnmounted(() => {
    --grid-column-width, and the top bar as wide as the grid, both centered.
    On a narrow screen the column simply fills it */
 .column.fixed {
-  --column-gap: calc(1rem + 2 * var(--card-outset));
+  --column-gap: calc(var(--grid-gap) + 2 * var(--card-outset));
   max-width: calc(
     var(--grid-columns) * var(--grid-column-width) + (var(--grid-columns) - 1) *
       var(--column-gap) + 2 * var(--card-outset)
@@ -820,7 +820,7 @@ onUnmounted(() => {
 
 @media (max-width: 480px) {
   .column.fixed {
-    --column-gap: calc(0.75rem + 2 * var(--card-outset));
+    --column-gap: calc(0.75 * var(--grid-gap) + 2 * var(--card-outset));
   }
 }
 
@@ -894,7 +894,7 @@ onUnmounted(() => {
   font-size: 0.85rem;
   text-align: center;
   border: 1px dashed rgba(207, 200, 232, 0.18);
-  border-radius: var(--card-radius);
+  border-radius: var(--video-radius);
 }
 
 /* one more card per row than the grid below (Settings → Grid → Columns),

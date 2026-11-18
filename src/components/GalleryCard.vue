@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import FileMenu from '@/components/FileMenu.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LoadingDots from '@/components/LoadingDots.vue'
@@ -191,7 +191,10 @@ function measureSpan() {
   const el = cardEl.value
   const grid = el?.parentElement
   if (!el || !grid) return
-  const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
+  let gap = parseFloat(getComputedStyle(grid).columnGap) || 0
+  // a folder's own side margins (Space between folders) count under it too
+  if (props.entry.kind === 'folder') gap += 2 * (parseFloat(getComputedStyle(el).marginLeft) || 0)
+  gap = Math.max(0, gap)
   // offsetHeight: its height in the layout, unaffected by the hover lift or
   // the selection's shrink (transforms)
   rowSpan.value = Math.max(1, Math.ceil(el.offsetHeight + gap))
@@ -203,6 +206,11 @@ onMounted(() => {
   measureSpan()
 })
 onUnmounted(() => sizeObserver.disconnect())
+// a new gap (Settings) doesn't resize the card itself: measure again
+watch(
+  () => [settings.gridGap, settings.folderGap],
+  () => nextTick(measureSpan),
+)
 
 function onImageLoad(e: Event) {
   const img = e.target as HTMLImageElement
@@ -742,6 +750,9 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 <style scoped>
 /* ── Card ── */
 .card {
+  /* corners: one value for folders, one for videos and photos (Settings →
+     Look → Folder corners, Video corners); everything inside follows it */
+  --card-radius: var(--video-radius);
   position: relative; /* anchors the loading dots */
   background: #1a1a1a;
   border-radius: var(--card-radius);
@@ -776,6 +787,8 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 
 .card.image:hover,
 .card.video:hover {
+  /* the card stays put: only the preview inside zooms (.media-wrap, Media below) */
+  transform: none;
   border-color: transparent;
   /* the ring's theme colors at full strength */
   --ring-mix: 100%;
@@ -798,14 +811,21 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
    Badge darkness, Badge glass ratio); thickness --card-glass-width (Settings →
    Look → Glass border width). A mask cuts out the middle, so only the frame
    is drawn and the video itself stays untouched */
-.card.folder {
-  /* how far past the card's padding edge the frame starts: its own border, plus the ring's place on photos and videos */
-  --frame-offset: var(--card-border);
-}
-
-.card.video,
-.card.image {
-  --frame-offset: calc(var(--card-border) + var(--ring-width));
+/* The ring and the glass border are drawn INSIDE the card, over the edge of the
+   preview, so they never take room from the grid's spacing */
+.card.ring-frame::before {
+  inset: 0;
+  padding: var(--ring-width);
+  border-radius: max(0px, calc(var(--card-radius) - var(--card-border)));
+  z-index: 4;
+  pointer-events: none;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
 }
 
 /* folders, and the photos and videos that aren't hearted (.plain-ring): the
@@ -814,13 +834,11 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 .card.plain-ring::after {
   content: '';
   position: absolute;
-  z-index: -1;
-  inset: calc(-1 * (var(--frame-offset) + var(--card-glass-width)));
+  z-index: 3;
+  inset: 0;
   padding: var(--card-glass-width);
-  /* parallel to the card's corners (and the ring's) */
-  border-radius: calc(
-    var(--card-radius) + var(--frame-offset) - var(--card-border) + var(--card-glass-width)
-  );
+  /* parallel to the card's corners */
+  border-radius: max(0px, calc(var(--card-radius) - var(--card-border)));
   background:
     linear-gradient(
       145deg,
@@ -1142,12 +1160,23 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 /* folders show loading dots just outside their edge, so the card can't clip;
    the top of .folder-wrap rounds itself instead */
 .card.folder {
+  --card-radius: var(--folder-radius);
   overflow: visible;
   /* its glass is drawn by ::before below, so its layers stay inside the card */
   isolation: isolate;
   background: transparent;
   border-color: var(--edge);
   box-shadow: var(--edge-shine);
+  /* Space between folders (Settings → Look → Space between folders): the grid's
+     gap is --grid-gap, so each side moves by half the difference (negative =
+     closer). The row span adds the same under it (measureSpan) */
+  margin-inline: calc((var(--folder-gap) - var(--grid-gap)) / 2);
+}
+
+@media (max-width: 480px) {
+  .card.folder {
+    margin-inline: calc(0.75 * (var(--folder-gap) - var(--grid-gap)) / 2);
+  }
 }
 
 /* The folder's dark frosted glass, like the top bar's: the sky shows through,
@@ -1339,7 +1368,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 
 .card:hover .media-wrap img,
 .card:hover .media-wrap .preview-video {
-  transform: scale(1.04);
+  transform: scale(1.1);
 }
 
 /* dark box until the still image has loaded */

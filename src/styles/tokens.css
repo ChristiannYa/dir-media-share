@@ -11,15 +11,17 @@
 :root {
   /* Grid card corners. The media inside, and the loading dots' path, are
      derived from these so they always line up with the card's edge. */
-  --card-radius: 1rem;
+  --folder-radius: 1rem;
+  --video-radius: 1rem; /* videos and photos */
+  /* each card sets its own --card-radius from these (GalleryCard.vue) */
   /* The card's own thin outline (folders show it; on images and videos it is
      transparent). Taken from inside the card, so a bigger value shrinks the
      media. For a thicker ring use --ring-width instead. */
   --card-border: 1px;
 
   /* Thickness of the faint ring around image and video cards (styles/ring.css).
-     Drawn outside the card, so the media keeps its size; the grid gap grows
-     to match. */
+     Drawn on the card's inside edge, over the media, so the grid's spacing
+     doesn't change. */
   --ring-width: 1px;
   /* How saturated the ring's theme colors are (Settings → Look → Ring
      vibrancy): 1 = as defined, 0 = grey, above 1 = more vivid */
@@ -29,9 +31,14 @@
      outside the ring, the same glass as the badges (.badge-glass): the sky
      shows through it, blurred (Settings → Look → Glass border width; 0 = none) */
   --card-glass-width: 6px;
+  /* Space between the cards of the grid, besides --card-outset (Settings →
+     Look → Space between cards). Phones use 3/4 of it (App.vue) */
+  --grid-gap: 1rem;
+  /* The same for folder cards (Settings → Look → Space between folders) */
+  --folder-gap: 1rem;
   /* How far a card's ring and glass border reach past its edge: the grid's
      gaps grow by this (App.vue) */
-  --card-outset: calc(var(--ring-width) + var(--card-glass-width));
+  --card-outset: 0px; /* the ring and glass border are drawn inside the cards now, so they take no room from the gaps */
 
   /* Theme colors: brighter versions of the night sky's nebula clouds
      (NightSky.vue) and the top bar's tint. The ring around images and videos
