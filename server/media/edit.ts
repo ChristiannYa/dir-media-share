@@ -1,5 +1,9 @@
 // Saving an edited copy of a video: its start and/or end cut off, its edges
-// cropped. Re-encoded (H.264 + AAC in MP4), so cuts land on the exact frame.
+// cropped. Re-encoded (AAC audio in MP4), so cuts land on the exact frame:
+// - 8-bit SDR videos: H.264, 8-bit
+// - 10-bit or HDR videos (iPhones record 10-bit HLG): HEVC, 10-bit, so the
+//   colors aren't squashed into 8-bit SDR (washed out, banding)
+// Either way the original's color tags are written on the copy.
 //
 // 1. ffmpeg writes into a hidden file next to the video
 // 2. It's saved next to the original as "clip_edited.mp4". The original is
@@ -14,7 +18,7 @@ import { claimName } from '../names.ts'
 import { relativePath } from '../paths.ts'
 import { run, type RunResult } from '../run.ts'
 import { PROGRESS_ARGS, progressReader } from './ffmpeg.ts'
-import { videoInfo } from './probe.ts'
+import { videoInfo, type VideoInfo } from './probe.ts'
 
 /** A problem to show the user as is */
 export class EditError extends Error {}
@@ -45,6 +49,49 @@ const MIN_LENGTH = 0.1
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 /** 4:2:0 video needs even sizes */
 const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2)
+
+/** Transfers of HDR video: PQ (HDR10, Dolby Vision's base) and HLG (iPhones) */
+const HDR_TRANSFERS = ['smpte2084', 'arib-std-b67']
+
+/** More than 8 bits per sample: "yuv420p10le", "p010le", "yuv422p12le"… */
+const isHighBitDepth = (pixFmt: string | null) => /1[0-6](le|be)$/.test(pixFmt ?? '')
+
+/**
+ * How the picture is encoded. 10-bit or HDR sources keep 10 bits and their
+ * HDR transfer in HEVC ("hvc1": the tag Safari / iOS need to play it; recent
+ * Chrome and Edge play it too with hardware decoding). CRF 20 in x265 looks
+ * about like 18 in x264. The rest stays H.264, which plays everywhere
+ */
+function videoCodecArgs(info: VideoInfo): string[] {
+  const keepTenBit =
+    isHighBitDepth(info.pixFmt) || HDR_TRANSFERS.includes(info.colorTransfer ?? '')
+  const codec = keepTenBit
+    ? [
+        '-c:v',
+        'libx265',
+        '-preset',
+        'medium',
+        '-crf',
+        '20',
+        '-pix_fmt',
+        'yuv420p10le',
+        '-tag:v',
+        'hvc1',
+        '-x265-params',
+        'log-level=error',
+      ]
+    : ['-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p']
+  // the original's color tags, so players show the same colors (an untagged
+  // HDR copy would be read as SDR)
+  const tags: Array<[string, string | null]> = [
+    ['-color_primaries', info.colorPrimaries],
+    ['-color_trc', info.colorTransfer],
+    ['-colorspace', info.colorSpace],
+    ['-color_range', info.colorRange],
+  ]
+  for (const [flag, value] of tags) if (value) codec.push(flag, value)
+  return codec
+}
 
 /** "clip.mov" → "clip_edited.mp4" (always .mp4: that's what it now is) */
 function editedName(file: string): string {
@@ -114,14 +161,7 @@ export async function editVideo(
     '0',
     '-vf',
     `crop=${w}:${h}:${x}:${y}`,
-    '-c:v',
-    'libx264',
-    '-preset',
-    'medium',
-    '-crf',
-    '18',
-    '-pix_fmt',
-    'yuv420p',
+    ...videoCodecArgs(info),
     '-c:a',
     'aac',
     '-b:a',
@@ -148,6 +188,9 @@ export async function editVideo(
     if (signal.aborted) throw new EditError('Cancelled')
     if (result.code !== 0) {
       console.error(`Editing ${file} failed:\n${result.stderr.slice(-8000)}`)
+      if (/Unknown encoder 'libx265'/.test(result.stderr)) {
+        throw new EditError("This server's ffmpeg has no HEVC encoder (libx265) for 10-bit / HDR videos")
+      }
       throw new EditError('ffmpeg could not edit it (details in the server log)')
     }
 

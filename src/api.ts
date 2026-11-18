@@ -252,6 +252,27 @@ export async function editVideo(
   }
 }
 
+/**
+ * Has the server crop a JPEG losslessly (no re-compression; its color profile
+ * and EXIF kept) into a copy next to it, "<name>_edited.jpg". `crop` is in
+ * fractions (0–1) of the photo as shown. Aborting `signal` stops it.
+ */
+export async function cropJpegOnServer(
+  path: string,
+  crop: { x: number; y: number; w: number; h: number },
+  signal?: AbortSignal,
+): Promise<{ path: string; name: string }> {
+  const params = new URLSearchParams({ path })
+  for (const [key, value] of Object.entries(crop)) params.set(key, String(value))
+  try {
+    const res = await fetch(`${API.editFile}?${params}`, { method: 'POST', signal })
+    return await readJob(res, () => {}, 'Cropping')
+  } catch (e) {
+    if (e instanceof TypeError && !signal?.aborted) throw new Error('Connection lost')
+    throw e
+  }
+}
+
 /** Reads a progress… / done / error stream of JSON lines until its outcome */
 async function readJob(
   res: Response,

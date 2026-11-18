@@ -13,7 +13,7 @@ import {
   thumbUrl,
 } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { REVEAL_MS, TOP_FOLDER_PARENTS, TS_BADGE_TITLE } from '@/constants'
+import { TOP_FOLDER_PARENTS, TS_BADGE_TITLE } from '@/constants'
 import { ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
@@ -365,28 +365,20 @@ watch(
 )
 
 /**
- * The reveal's colors (the .reveal style): one soft blob per theme color
- * (REVEAL_BLOBS in the CSS: purple, blue, cyan, green, pink), fading into each
- * other, each wandering on its own random path. Picked anew each time the
- * card is revealed: REVEAL_STOPS spots per blob, which it glides through
- * (--drift-0 … --drift-3, the background-position of every layer)
+ * The app led you to this card (App.vue revealCard): it plays the same sweep
+ * as a preview that just loaded, once, at once (not waiting for a video to
+ * play). Restarted from scratch if it's already running
  */
-const REVEAL_BLOBS = 5
-const REVEAL_STOPS = 4
-
-function revealDrift(): Record<string, string> {
-  const style: Record<string, string> = { '--reveal-ms': `${REVEAL_MS}ms` }
-  const spot = () => `${Math.round(Math.random() * 100)}%`
-  for (let stop = 0; stop < REVEAL_STOPS; stop++) {
-    const blobs = Array.from({ length: REVEAL_BLOBS }, () => `${spot()} ${spot()}`)
-    // the last layer, the soft base under the blobs, stays put
-    style[`--drift-${stop}`] = [...blobs, '0 0'].join(', ')
-  }
-  return style
-}
-
-/** The reveal's random paths: new ones each time `revealing` turns on */
-const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined))
+watch(
+  () => props.revealing,
+  async (on) => {
+    if (!on) return
+    endSweep()
+    await nextTick()
+    prepareSweep()
+    sweepWaiting.value = false
+  },
+)
 </script>
 
 <template>
@@ -420,13 +412,6 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
     @contextmenu="onContextMenu"
     @click="onClick"
   >
-    <!-- the app led you here: a halo and a thin ring, both of the theme
-         colors wandering and fading into each other, as they beat (App.vue
-         revealCard). The same random paths on both (revealStyle) -->
-    <template v-if="revealing">
-      <span class="reveal reveal-halo" :style="revealStyle" aria-hidden="true" />
-      <span class="reveal reveal-ring" :style="revealStyle" aria-hidden="true" />
-    </template>
     <!-- selection mode: a faint blue layer over picked files -->
     <span v-if="selecting && selected" class="select-tint" aria-hidden="true" />
     <!-- selection mode: files get a check circle (their menu can't be opened meanwhile) -->
@@ -572,6 +557,17 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         @load="onImageLoad"
         @error="onMediaError(trackKey)"
       />
+      <!-- the app led you here: the loaded sweep, once (see the script) -->
+      <div
+        v-if="sweepStyle"
+        class="preview-sweep"
+        :style="sweepStyle"
+        aria-hidden="true"
+        @animationend.self="endSweep"
+      >
+        <span class="sweep-colors" />
+        <span class="sweep-frost force-glass" />
+      </div>
       <!-- viewsOnly: just how many times it was shown, bottom-right like a folder's -->
       <span
         v-if="viewsOnly && !bare"
@@ -978,145 +974,10 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   }
 }
 
-/* fades in to 0.6 and out again (the sweep and the reveal with reduced motion) */
+/* fades in to 0.6 and out again (the sweep with reduced motion) */
 @keyframes card-glow {
   50% {
     opacity: 0.6;
-  }
-}
-
-/* ── Reveal ──
-   The app led you to this card (App.vue revealCard: a "Most played" card
-   opened, a folder just created), for REVEAL_MS: a wide blurred halo and a thin ring just outside the
-   card beat twice and fade, while the card itself bounces (App.vue).
-   Their colors: a soft blob of each theme color, fading into the others,
-   each wandering on a random path picked anew each time (revealDrift in the
-   script: --drift-0 … --drift-3, a position for each layer), over a soft
-   base so no part is ever empty. Behind the card (z-index -2), so only
-   what's past its edges shows */
-.reveal {
-  position: absolute;
-  z-index: -2;
-  /* REVEAL_BLOBS (script) blobs, then the base: keep the counts in step */
-  background:
-    radial-gradient(closest-side, var(--theme-purple), transparent),
-    radial-gradient(closest-side, var(--theme-blue), transparent),
-    radial-gradient(closest-side, var(--theme-cyan), transparent),
-    radial-gradient(closest-side, var(--theme-green), transparent),
-    radial-gradient(closest-side, var(--theme-pink), transparent),
-    linear-gradient(
-      135deg,
-      color-mix(in oklab, var(--theme-purple) 60%, transparent),
-      color-mix(in oklab, var(--theme-cyan) 60%, transparent)
-    );
-  background-size:
-    75% 75%,
-    75% 75%,
-    75% 75%,
-    75% 75%,
-    75% 75%,
-    100% 100%;
-  background-repeat: no-repeat;
-  background-position: var(--drift-0);
-  opacity: 0;
-  pointer-events: none;
-  animation:
-    card-reveal var(--reveal-ms) ease-in-out,
-    reveal-drift var(--reveal-ms) ease-in-out;
-}
-
-/* the blobs glide from spot to spot (the spots: revealDrift in the script) */
-@keyframes reveal-drift {
-  0% {
-    background-position: var(--drift-0);
-  }
-  33% {
-    background-position: var(--drift-1);
-  }
-  66% {
-    background-position: var(--drift-2);
-  }
-  100% {
-    background-position: var(--drift-3);
-  }
-}
-
-.reveal-halo {
-  inset: calc(-1 * var(--card-outset) - 10px);
-  border-radius: calc(var(--card-radius) + var(--card-outset) + 10px);
-  filter: blur(22px) saturate(calc(1.4 * var(--ring-vibrancy, 1)));
-}
-
-/* a thin 2px band right against the card's ring and glass border (the mask
-   cuts out the middle). It doesn't swell like the halo: scaled, it would pull
-   away from the card and leave a gap; it bounces with the card instead */
-.reveal-ring {
-  inset: calc(-1 * var(--card-outset) - 2px);
-  padding: 2px;
-  border-radius: calc(var(--card-radius) + var(--card-outset) + 2px);
-  filter: saturate(calc(1.4 * var(--ring-vibrancy, 1)));
-  /* its own beats (no swelling), the same drift */
-  animation-name: card-reveal-ring, reveal-drift;
-  -webkit-mask:
-    linear-gradient(#000 0 0) content-box,
-    linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-}
-
-@keyframes card-reveal {
-  0% {
-    opacity: 0;
-    transform: scale(0.94);
-  }
-  12% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-  30% {
-    opacity: 0.55;
-    transform: scale(1.02);
-  }
-  45% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-  65% {
-    opacity: 0.55;
-    transform: scale(1.02);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(1);
-  }
-}
-
-/* the ring: the same beats, without the swelling */
-@keyframes card-reveal-ring {
-  0% {
-    opacity: 0;
-  }
-  12%,
-  45% {
-    opacity: 1;
-  }
-  30%,
-  65% {
-    opacity: 0.55;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
-/* reduced motion: the colors glow and fade where they start, nothing swells
-   or wanders. .reveal-ring listed too, its own animation-name would win otherwise */
-@media (prefers-reduced-motion: reduce) {
-  .reveal,
-  .reveal.reveal-ring {
-    animation: card-glow var(--reveal-ms) ease-in-out;
   }
 }
 

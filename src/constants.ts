@@ -263,11 +263,11 @@ export const SHARED_SETTINGS_STORAGE_KEY = 'med.sharedSettings'
 export const MENU_STATUS_MS = 1500
 
 /**
- * How long a card flashes when the app leads you to it (App.vue revealCard:
- * a "Most played" card opened, a folder just created), ms. The card's bounce
- * (App.vue) and its spinning glow (GalleryCard.vue) both last this long
+ * How long a card counts as revealed when the app leads you to it (App.vue
+ * revealCard: a "Most played" card opened, a folder or edited copy just
+ * added), ms: a little past its loaded sweep (GalleryCard.vue, 1.4s)
  */
-export const REVEAL_MS = 3800
+export const REVEAL_MS = 1500
 
 // ── Settings popup ──
 

@@ -453,16 +453,14 @@ function scrollSettled(maxMs: number): Promise<void> {
   })
 }
 
-/** The card flashing now (revealCard): its GalleryCard draws the spinning glow */
+/** The card being revealed now (revealCard): its GalleryCard plays the loaded sweep */
 const revealingPath = ref<string | null>(null)
 let revealTimer: ReturnType<typeof setTimeout> | undefined
 
 /**
  * Scrolls the grid's card of `path` into the middle of the screen and, once
- * it's there, makes it flash for REVEAL_MS: a bright ring and glow of the
- * theme colors wandering and fading into each other (GalleryCard.vue,
- * .reveal), beats twice while the card bounces bigger, then fades. False if
- * the grid has no such card
+ * it's there, has it play the same sweep as a preview that just loaded
+ * (GalleryCard.vue, the `revealing` watcher). False if the grid has no such card
  */
 function revealCard(path: string): boolean {
   // the grid's card, not its copy in the "Most played" section
@@ -472,25 +470,12 @@ function revealCard(path: string): boolean {
   if (!card) return false
   card.scrollIntoView({ behavior: 'smooth', block: 'center' })
   void scrollSettled(REVEAL_SCROLL_WAIT_MS).then(async () => {
-    // the same card again: restart its glow
+    // the same card again: play its sweep again
     revealingPath.value = null
     await nextTick()
     revealingPath.value = path
     clearTimeout(revealTimer)
     revealTimer = setTimeout(() => (revealingPath.value = null), REVEAL_MS)
-    // the bounce, in step with the glow's beats; none with reduced motion
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    card.animate(
-      [
-        { transform: 'scale(1)' },
-        { transform: 'scale(1.1)', offset: 0.12 },
-        { transform: 'scale(1.02)', offset: 0.3 },
-        { transform: 'scale(1.1)', offset: 0.45 },
-        { transform: 'scale(1.02)', offset: 0.65 },
-        { transform: 'scale(1)' },
-      ],
-      { duration: REVEAL_MS, easing: 'ease-in-out' },
-    )
   })
   return true
 }
@@ -563,8 +548,14 @@ provide(RELOAD_GALLERY_KEY, async () => {
 })
 
 // a folder was just created: show where it landed in the grid
-provide(REVEAL_ENTRY_KEY, async (path: string) => {
-  await reload()
+provide(REVEAL_ENTRY_KEY, async (path: string, openFolder = false) => {
+  const folder = path.split('/').slice(0, -1).join('/')
+  if (openFolder && folder !== currentPath.value) {
+    picked.clear()
+    await navigate(folder) // lists the folder it opens
+  } else {
+    await reload()
+  }
   await nextTick()
   revealCard(path) // not there if it was made inside a subfolder: nothing to show
 })

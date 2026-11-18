@@ -12,9 +12,11 @@ export const RELOAD_GALLERY_KEY: InjectionKey<() => Promise<void>> = Symbol('rel
 /**
  * Provided by App: lists the open folder again, then scrolls to the card of
  * `path` and briefly outlines it (e.g. a folder just created). If it isn't in
- * the open folder (created inside a subfolder), it only reloads.
+ * the open folder (created inside a subfolder), it only reloads; with
+ * `openFolder`, the folder holding `path` is opened first (a copy saved from a
+ * "Most played" / "Hearted" card, whose folder isn't the open one).
  */
-export const REVEAL_ENTRY_KEY: InjectionKey<(path: string) => Promise<void>> =
+export const REVEAL_ENTRY_KEY: InjectionKey<(path: string, openFolder?: boolean) => Promise<void>> =
   Symbol('revealEntry')
 
 /**

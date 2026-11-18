@@ -1,7 +1,16 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, inject, onUnmounted, reactive, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { editVideo, fileUrl, renameEntry, setPlays, uploadFile, type Upload } from '@/api'
+import { REVEAL_ENTRY_KEY } from '@/composables/useGallery'
+import {
+  cropJpegOnServer,
+  editVideo,
+  fileUrl,
+  renameEntry,
+  setPlays,
+  uploadFile,
+  type Upload,
+} from '@/api'
 import { recordsVideoData } from '@/appMode'
 import type { Entry } from '@/types'
 import { cropImage } from '@/utils/editImage'
@@ -13,13 +22,17 @@ import { cropImage } from '@/utils/editImage'
  * - cut off the video's start and/or end (yellow handles, like Photos on the
  *   iPhone) and crop the edges of either (the white frame): saved as a copy
  *   next to it, "<name>_edited.<ext>" (videos always .mp4,
- *   server/media/edit.ts; photos are cropped in the browser,
+ *   server/media/edit.ts; JPEGs are cropped losslessly on the server,
+ *   server/media/cropJpeg.ts; other photos in the browser,
  *   src/utils/editImage.ts). The picture of the original is never touched.
  * Save does them in that order, so the copy is named after the new name.
  */
 const props = defineProps<{ entry: Entry }>()
 /** `changed`: a copy was saved, so the listing should be reloaded */
 const emit = defineEmits<{ close: []; changed: [] }>()
+
+/** Re-lists the folder and scrolls to a card (App); without it, `changed` just asks for a reload */
+const revealEntry = inject(REVEAL_ENTRY_KEY, null)
 
 const isVideo = props.entry.kind === 'video'
 const src = fileUrl(props.entry.path)
@@ -254,6 +267,8 @@ function dirOf(path: string): string {
 
 /** Something was saved on the server: the folder is listed again when the dialog closes */
 let anythingSaved = false
+/** Where the trimmed / cropped copy was saved (null: none made); the grid leads to it */
+let copyPath: string | null = null
 
 /**
  * Renames it, sets its views, then makes the trimmed / cropped copy (named
@@ -281,18 +296,22 @@ async function save() {
     }
     if (makesCopy.value) {
       if (isVideo) {
-        await editVideo(
+        const made = await editVideo(
           savedPath,
           { start: trim.start, end: trim.end, ...crop },
           (f) => (progress.value = f),
           abort.signal,
         )
+        copyPath = made.path
+      } else if (/\.jpe?g$/i.test(savedName.value)) {
+        // JPEGs: cropped losslessly on the server (no re-compression, colors kept)
+        copyPath = (await cropJpegOnServer(savedPath, { ...crop }, abort.signal)).path
       } else {
         const file = await cropImage(fileUrl(savedPath), savedName.value, { ...crop }, abort.signal)
         upload = uploadFile(dirOf(savedPath), file, (sent) => {
           progress.value = file.size ? sent / file.size : 0
         })
-        await upload.done
+        copyPath = (await upload.done).path
       }
       anythingSaved = true
     }
@@ -312,7 +331,9 @@ async function save() {
  * the copy
  */
 function close() {
-  if (anythingSaved) emit('changed')
+  // a copy: the folder is listed again and the page scrolls to the copy's card
+  if (copyPath && revealEntry) void revealEntry(copyPath, true)
+  else if (anythingSaved) emit('changed')
   emit('close')
 }
 

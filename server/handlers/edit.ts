@@ -1,9 +1,11 @@
-// Saving edited (trimmed / cropped) copies of videos. Photos are cropped in
-// the browser and uploaded (src/utils/editImage.ts).
+// Saving edited copies: trimmed / cropped videos, and losslessly cropped
+// JPEGs. Other photos (PNG, WebP) are cropped in the browser and uploaded
+// (src/utils/editImage.ts).
 
 import path from 'node:path'
 import { sendJson, type Handler } from '../http.ts'
 import { isVideoName } from '../listing.ts'
+import { cropJpeg, isJpegName } from '../media/cropJpeg.ts'
 import { editVideo, EditError, type EditResult, type VideoEdit } from '../media/edit.ts'
 import { resolveFile } from '../paths.ts'
 
@@ -21,25 +23,23 @@ type EditMessage =
 
 /**
  * POST /api/file/edit?path=&start=&end=&x=&y=&w=&h= : saves a trimmed and/or
- * cropped copy next to the video as "<name>_edited.mp4" (server/media/edit.ts).
- * The answer is a stream of JSON lines: progress…, then done ({ path, name }
- * of the copy) or error. Closing the request stops it; no copy is kept then.
+ * cropped copy next to the video as "<name>_edited.mp4" (server/media/edit.ts),
+ * or, for a JPEG (no start / end), a losslessly cropped copy as
+ * "<name>_edited.jpg" (server/media/cropJpeg.ts). The answer is a stream of
+ * JSON lines: progress…, then done ({ path, name } of the copy) or error.
+ * Closing the request stops it; no copy is kept then.
  */
 export const editFile: Handler = async (_req, res, url) => {
   const file = await resolveFile(url.searchParams.get('path') ?? '')
   if (!file) return sendJson(res, { error: 'File not found' }, 404)
-  if (!isVideoName(path.basename(file))) {
-    return sendJson(res, { error: 'Only videos are edited on the server' }, 415)
+  const isVideo = isVideoName(path.basename(file))
+  if (!isVideo && !isJpegName(path.basename(file))) {
+    return sendJson(res, { error: 'Only videos and JPEGs are edited on the server' }, 415)
   }
   const num = (key: string) => Number(url.searchParams.get(key) ?? NaN)
-  const edit: VideoEdit = {
-    start: num('start'),
-    end: num('end'),
-    x: num('x'),
-    y: num('y'),
-    w: num('w'),
-    h: num('h'),
-  }
+  const crop = { x: num('x'), y: num('y'), w: num('w'), h: num('h') }
+  // a photo has nothing to trim
+  const edit: VideoEdit = { start: isVideo ? num('start') : 0, end: isVideo ? num('end') : 0, ...crop }
   if (Object.values(edit).some((v) => !Number.isFinite(v))) {
     return sendJson(res, { error: 'Invalid edit' }, 400)
   }
@@ -73,13 +73,16 @@ export const editFile: Handler = async (_req, res, url) => {
   }
 
   try {
-    send({ type: 'done', ...(await editVideo(file, edit, abort.signal, onProgress)) })
+    const result = isVideo
+      ? await editVideo(file, edit, abort.signal, onProgress)
+      : await cropJpeg(file, crop, abort.signal)
+    send({ type: 'done', ...result })
   } catch (e) {
     if (!abort.signal.aborted) {
       if (!(e instanceof EditError)) console.error(`Editing ${file} failed:`, e)
       send({
         type: 'error',
-        error: e instanceof EditError ? e.message : 'The video could not be edited',
+        error: e instanceof EditError ? e.message : `The ${isVideo ? 'video' : 'photo'} could not be edited`,
       })
     }
   } finally {

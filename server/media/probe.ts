@@ -25,6 +25,16 @@ export interface VideoInfo {
   displayHeight: number | null
   /** Frames per second of the video stream */
   fps: number | null
+  /** How its pixels are stored, e.g. "yuv420p" (8-bit) or "yuv420p10le" (10-bit) */
+  pixFmt: string | null
+  /**
+   * Its color tags, as ffprobe names them (null: not tagged). The transfer
+   * tells HDR apart: "smpte2084" (HDR10 / PQ) or "arib-std-b67" (HLG, iPhones)
+   */
+  colorPrimaries: string | null
+  colorTransfer: string | null
+  colorSpace: string | null
+  colorRange: string | null
 }
 
 /** The parts of ffprobe's JSON output used here */
@@ -39,7 +49,17 @@ interface ProbeOutput {
     r_frame_rate?: string
     side_data_list?: Array<{ rotation?: number }>
     tags?: { rotate?: string }
+    pix_fmt?: string
+    color_primaries?: string
+    color_transfer?: string
+    color_space?: string
+    color_range?: string
   }>
+}
+
+/** ffprobe says "unknown" for untagged colors: the same as no tag */
+function tag(value: string | undefined): string | null {
+  return value && value !== 'unknown' ? value : null
 }
 
 /** MPEG-TS can't be played by browsers, even when named .mp4 */
@@ -106,6 +126,11 @@ export async function videoInfo(file: string): Promise<VideoInfo | null> {
     displayWidth,
     displayHeight,
     fps,
+    pixFmt: tag(stream?.pix_fmt),
+    colorPrimaries: tag(stream?.color_primaries),
+    colorTransfer: tag(stream?.color_transfer),
+    colorSpace: tag(stream?.color_space),
+    colorRange: tag(stream?.color_range),
   }
 }
 
