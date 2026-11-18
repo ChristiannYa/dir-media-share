@@ -114,6 +114,12 @@ const {
 const trackKey = computed(() => props.statusKey ?? props.entry.path)
 
 const isMedia = computed(() => isMediaEntry(props.entry))
+/**
+ * Hearted photos and videos (not in Most played) wear the player's colored
+ * glass (.theme-glass) on their badges, the rest the dark one (.badge-glass)
+ */
+const coloredBadges = computed(() => isMedia.value && !!props.entry.favorite && !props.viewsOnly)
+const badgeGlass = computed(() => (coloredBadges.value ? 'theme-glass' : 'badge-glass'))
 
 /** Videos: "1080p", "4K60"…; null if the size is unknown */
 const quality = computed(() =>
@@ -397,7 +403,11 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         'ring-loading': isMedia && isLoading(entry, trackKey),
         // hearted photos and videos show their ring (theme colors); the rest get the glass
         // border instead. Not in the Most played section (viewsOnly): there every one gets the glass
-        'plain-ring': isMedia && (!entry.favorite || viewsOnly),
+        // No colored ring on any card (grid, Hearted section): a hearted one's
+        // badges wear the player's colored glass instead (.colored-badges).
+        // Not in Most played (viewsOnly): there every card is plain
+        'plain-ring': isMedia,
+        'colored-badges': coloredBadges,
         'is-loading': isLoading(entry, trackKey),
         selecting,
         selected,
@@ -558,7 +568,8 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       <!-- viewsOnly: just how many times it was shown, bottom-right like a folder's -->
       <span
         v-if="viewsOnly"
-        class="badge-glass info-badge plays-badge views-only"
+        class="info-badge plays-badge views-only"
+        :class="badgeGlass"
         :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
@@ -586,7 +597,12 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
             />
           </span>
         </button>
-        <span v-if="entry.size" class="badge-glass info-badge size-badge" title="File size">
+        <span
+          v-if="entry.size"
+          class="info-badge size-badge"
+          :class="badgeGlass"
+          title="File size"
+        >
           <!-- hard drive -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -654,8 +670,8 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
       <Transition name="mode-badge">
         <span
           v-if="!selecting && recordsVideoData"
-          class="badge-glass info-badge plays-badge"
-          :class="{ 'views-only': viewsOnly }"
+          class="info-badge plays-badge"
+          :class="[badgeGlass, { 'views-only': viewsOnly }]"
           :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
@@ -663,7 +679,7 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
         </span>
       </Transition>
       <!-- top-right: the quality -->
-      <span v-if="quality && !viewsOnly" class="badge-glass info-badge quality-badge">
+      <span v-if="quality && !viewsOnly" class="info-badge quality-badge" :class="badgeGlass">
         {{ quality }}
       </span>
       <div v-if="!viewsOnly" class="video-badges">
@@ -691,7 +707,12 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
             />
           </span>
         </button>
-        <span v-if="entry.duration" class="badge-glass info-badge duration-badge" title="Duration">
+        <span
+          v-if="entry.duration"
+          class="info-badge duration-badge"
+          :class="badgeGlass"
+          title="Duration"
+        >
           <!-- clock -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -700,7 +721,12 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
           </svg>
           {{ formatDuration(entry.duration) }}
         </span>
-        <span v-if="entry.size" class="badge-glass info-badge size-badge" title="File size">
+        <span
+          v-if="entry.size"
+          class="info-badge size-badge"
+          :class="badgeGlass"
+          title="File size"
+        >
           <!-- hard drive -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path
@@ -1293,6 +1319,19 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
   color: #fff;
 }
 
+/* Hearted photos and videos (not in Most played): their badges (plays, size,
+   quality, duration) have the .theme-glass class, the same as the video
+   player's buttons (tokens.css), instead of the colored ring. Only how opaque
+   the colors are differs: stronger than on the player so they read on a
+   preview. --colored-badge-boost: how many times more opaque */
+.card.colored-badges {
+  --colored-badge-boost: 2.5;
+  --theme-glass-alpha: min(
+    90%,
+    calc(var(--glass-opacity) * var(--video-control-ratio) * var(--colored-badge-boost) * 100%)
+  );
+}
+
 /* videos, images and size in one badge, pushed to the right */
 .folder-contents {
   gap: 0.5rem;
@@ -1611,6 +1650,24 @@ const revealStyle = computed(() => (props.revealing ? revealDrift() : undefined)
 
 .fav-btn.on .heart::after {
   background: var(--edge-strong);
+}
+
+/* hearted, on a card with colored badges: the heart wears the same colored
+   glass as them (--theme-glass, tokens.css) instead of red */
+.card.colored-badges .fav-btn.on .heart {
+  /* no white sheen (it made the heart lighter than the badges), and the
+     badges' own blur and rim */
+  background: var(--theme-glass);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
+
+.card.colored-badges .fav-btn.on .heart::after {
+  background: var(--edge);
+}
+
+:global(html.no-glass) .card.colored-badges .fav-btn.on .heart {
+  background: var(--theme-glass), rgba(14, 13, 22, 0.85);
 }
 
 /* "Glass effect" off: nothing blurred shows through, so a see-through red

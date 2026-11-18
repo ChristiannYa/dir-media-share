@@ -73,14 +73,6 @@
      through the .theme-glass class below, which adds the frosted blur and
      follows the "Glass effect" setting */
   --theme-glass-alpha: calc(var(--glass-opacity) * var(--video-control-ratio) * 100%);
-  --theme-glass: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--theme-purple) var(--theme-glass-alpha), transparent),
-    color-mix(in srgb, var(--theme-blue) var(--theme-glass-alpha), transparent),
-    color-mix(in srgb, var(--theme-cyan) var(--theme-glass-alpha), transparent),
-    color-mix(in srgb, var(--theme-green) var(--theme-glass-alpha), transparent),
-    color-mix(in srgb, var(--theme-pink) var(--theme-glass-alpha), transparent)
-  );
 
   /* Space between a card's edge and the info on its media (date, duration,
      size, counts, the preview's status pill) */
@@ -145,6 +137,22 @@ textarea {
 /* Colored frosted glass (the video player's buttons, pills and slider
    preview): the theme colors, see-through, over a blur of what's behind,
    with the same glass rim as the top bar and folder cards */
+.theme-glass,
+.colored-badges {
+  /* built here, not on :root, so an element or its card can set its own
+     --theme-glass-alpha for a stronger or fainter tint (GalleryCard.vue).
+     .colored-badges (a hearted card) also holds it for its heart, which
+     can't be a .theme-glass itself: its mask would cut off the border */
+  --theme-glass: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--theme-purple) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-blue) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-cyan) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-green) var(--theme-glass-alpha), transparent),
+    color-mix(in srgb, var(--theme-pink) var(--theme-glass-alpha), transparent)
+  );
+}
+
 .theme-glass {
   background: var(--theme-glass);
   -webkit-backdrop-filter: blur(16px) saturate(150%);
