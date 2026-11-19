@@ -16,6 +16,7 @@ import {
 import { recordsVideoData } from '@/appMode'
 import {
   LOVED_FOLDER_PARENTS,
+  REVEAL_MS,
   TOP_FOLDER_PARENTS,
   TS_BADGE_TITLE,
   WATCH_TIME_FOLDER_PARENTS,
@@ -594,6 +595,7 @@ watch(
         'link-only': linkOnly,
         'views-only': viewsOnly,
         'stack-busy': stackState.temporal > 0,
+        revealing,
       },
     ]"
     v-on="hold.listeners"
@@ -616,6 +618,15 @@ watch(
     <LoadingDots
       v-if="isLoading(entry, trackKey) && settings.loadingDots > 0"
       :count="settings.loadingDots"
+    />
+    <!-- the app led you here (App.vue revealCard): a frame in the theme colors,
+         fading into each other, over the glass border while it lasts. Made
+         again for each reveal, so its fade starts over -->
+    <span
+      v-if="revealing"
+      class="reveal-ring"
+      :style="{ '--reveal-ms': `${REVEAL_MS}ms` }"
+      aria-hidden="true"
     />
 
     <!-- Folder -->
@@ -1274,6 +1285,58 @@ watch(
     linear-gradient(#000 0 0) content-box exclude,
     linear-gradient(#000 0 0);
   pointer-events: none;
+}
+
+/* ── Reveal ring ──
+   The app led you to this card (the `revealing` prop): a frame of the five
+   theme colors, each fading into the next around it (as styles/ring.css),
+   over the glass border. Always shown, even with Glass border width at 0:
+   at least --reveal-ring-min-width thick, the glass border's width if that's
+   more. It fades in, holds, and fades out within REVEAL_MS (--reveal-ms),
+   when the app takes it away again */
+.reveal-ring {
+  --reveal-ring-min-width: 4px;
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  padding: max(var(--card-glass-width), var(--reveal-ring-min-width));
+  border-radius: max(0px, calc(var(--card-radius) - var(--card-border)));
+  background: conic-gradient(
+    from 200deg,
+    var(--theme-purple),
+    var(--theme-blue),
+    var(--theme-cyan),
+    var(--theme-green),
+    var(--theme-pink),
+    var(--theme-purple)
+  );
+  /* Settings → Look → Ring vibrancy, like the ring */
+  filter: saturate(var(--ring-vibrancy, 1));
+  /* only the frame: the inside (the preview) cut out */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+  opacity: 0;
+  animation: reveal-ring var(--reveal-ms, 1.5s) ease-in-out forwards;
+}
+
+/* while it shows, the card sits above the cards around it: the next one in
+   its column comes later in the page, so it would paint over its bottom edge
+   where they touch. Still under the top bar (10) and the selection bar (20) */
+.card.revealing {
+  z-index: 1;
+}
+
+@keyframes reveal-ring {
+  15%,
+  70% {
+    opacity: 1;
+  }
 }
 
 /* ── Preview sweep ──
