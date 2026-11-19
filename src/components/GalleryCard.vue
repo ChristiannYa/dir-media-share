@@ -14,13 +14,18 @@ import {
   thumbUrl,
 } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { TOP_FOLDER_PARENTS, TS_BADGE_TITLE, WATCH_TIME_FOLDER_PARENTS } from '@/constants'
+import {
+  LOVED_FOLDER_PARENTS,
+  TOP_FOLDER_PARENTS,
+  TS_BADGE_TITLE,
+  WATCH_TIME_FOLDER_PARENTS,
+} from '@/constants'
 import {
   BADGE_STACK_STATE_KEY,
   BADGE_TARGETS_KEY,
   createBadgeStackState,
 } from '@/composables/useBadgeStack'
-import { ICON_CLOCK, ICON_COMPRESS, ICON_EDIT, ICON_EYE } from '@/icons'
+import { ICON_CLOCK, ICON_COMPRESS, ICON_EDIT, ICON_EYE, ICON_HEART } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
@@ -107,6 +112,21 @@ const showFolderWatched = computed(() => {
     !!props.entry.watched_ms &&
     top.length > 1 &&
     WATCH_TIME_FOLDER_PARENTS.includes(top[0]!.replace(/^\.+/, '').toLowerCase())
+  )
+})
+
+/**
+ * Folders show how many videos and photos inside them (subfolders included) are
+ * hearted, only in the folders below .bin and not the ones directly inside it
+ * (LOVED_FOLDER_PARENTS: .bin/cinema/annaralphs and deeper, not .bin/cinema),
+ * and only once something inside is hearted
+ */
+const showFolderLoved = computed(() => {
+  const parts = props.entry.path.split('/').filter(Boolean)
+  return (
+    !!props.entry.favorite_count &&
+    parts.length > 2 &&
+    LOVED_FOLDER_PARENTS.includes(parts[0]!.replace(/^\.+/, '').toLowerCase())
   )
 })
 
@@ -626,7 +646,7 @@ watch(
         <!-- the views of everything inside, and below them how long it was
              watched (under .bin only): in the metadata row, styled like the
              folder's other metadata (its counts and size, below) -->
-        <StackBadge badge="plays" :show="showFolderViews || showFolderWatched">
+        <StackBadge badge="plays" :show="showFolderViews || showFolderWatched || showFolderLoved">
           <div class="plays-stack">
             <span
               v-if="showFolderViews"
@@ -639,6 +659,15 @@ watch(
             <span v-if="showFolderWatched" class="badge-glass folder-badge" :title="watchedTitle">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
               {{ watchedText }}
+            </span>
+            <!-- below the time watched: how many hearted videos and photos are inside -->
+            <span
+              v-if="showFolderLoved"
+              class="badge-glass folder-badge"
+              :title="`${entry.favorite_count} hearted ${entry.favorite_count === 1 ? 'item' : 'items'} inside, on every device`"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_HEART" /></svg>
+              {{ entry.favorite_count }}
             </span>
           </div>
         </StackBadge>

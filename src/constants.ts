@@ -254,6 +254,14 @@ export const WATCH_TIME_MAX_ADD_MS = 6 * 60 * 60 * 1000
  * deeper; not .bin itself). Matched without leading dots and ignoring case
  */
 export const WATCH_TIME_FOLDER_PARENTS: readonly string[] = ['bin']
+/**
+ * Folder cards show their love count (hearted videos and photos inside,
+ * subfolders included) only in the folders below these, and not in the ones
+ * directly inside them: .bin/cinema/annaralphs and deeper yes; .bin itself and
+ * .bin/leaks, .bin/cinema, .bin/rand, .bin/know no. Matched without leading
+ * dots and ignoring case
+ */
+export const LOVED_FOLDER_PARENTS: readonly string[] = ['bin']
 
 /** Original files are served under this prefix (path segments are URL-encoded after it) */
 export const FILES_PREFIX = '/files/'
