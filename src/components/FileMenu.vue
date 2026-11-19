@@ -5,47 +5,42 @@ import EditDialog from '@/components/EditDialog.vue'
 import MetadataDialog from '@/components/MetadataDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
-import { entryFileUrl, fetchViewLog, fixTs, queueCompress, trashFile } from '@/api'
+import { entryFileUrl, fetchViewLog, fixTs, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { popupsGone } from '@/composables/usePopupOpen'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
-  COMPRESS_LABEL,
-  COMPRESS_REPLACE_LABEL,
   EDIT_LABEL,
   EDIT_METADATA_LABEL,
   FIX_TS_LABEL,
   MOVE_LABEL,
   RENAME_LABEL,
-  REPLACE_CONFIRM,
   TRASH_CONFIRM,
   TRASH_LABEL,
 } from '@/constants'
 import {
-  ICON_COMPRESS,
   ICON_DOWNLOAD,
   ICON_EDIT,
   ICON_FIX,
   ICON_FOLDER_MOVE,
   ICON_METADATA,
   ICON_RENAME,
-  ICON_REPLACE,
   ICON_SELECT,
   ICON_TRASH,
 } from '@/icons'
 import type { Entry, MenuDetail, MenuHistory, MenuItem } from '@/types'
 import { downloadFile } from '@/utils/download'
 import { puffAway } from '@/utils/puff'
-import { isCompressible, isEditable } from '@/utils/entry'
+import { isEditable } from '@/utils/entry'
 import { minuteClock } from '@/utils/clock'
 import { formatAgo, formatDate, formatLongDate, formatSize, formatWatched } from '@/utils/format'
 
 /**
  * Menu of a video / image / file card: its dates, then icon buttons to fix,
- * edit (or rename), download (photos and videos), compress, select (turns on
- * selection mode), move or delete it (the rows are listed above the items,
- * below). The card opens it
+ * edit (or rename), download (photos and videos), select (turns on selection
+ * mode), move or delete it (the rows are listed above the items, below).
+ * Compress and Compress & replace are in the edit popup (EditDialog.vue). The
+ * card opens it
  * (`open()`) on a right-click or press-and-hold.
  */
 const props = defineProps<{ entry: Entry }>()
@@ -79,7 +74,7 @@ function fixBusyLabel(): string {
 // The menu's buttons are icons only (CardMenu's icon-only): each label is
 // its tooltip and screen-reader name. In rows:
 //  1. Fix TS (only for a .ts that needs it)
-//  2. download, compress, compress & replace, select
+//  2. download, select
 //  3. move, trash
 //  4. edit (rename for files that can't be edited), edit metadata (photos and
 //     videos: views, time watched)
@@ -151,64 +146,6 @@ const downloadItem: MenuItem = {
   },
 }
 
-const { activePaths } = useCompressQueue()
-/** This file is waiting or compressing right now */
-const compressQueued = computed(() => activePaths.value.has(props.entry.path))
-
-/**
- * Adds it to the server's compress queue, which works in the background: its
- * progress is in the top bar's compress button (CompressButton.vue). The menu
- * closes at once, without waiting for the server's answer: the top bar's
- * button shows it was queued, and only a problem (already in the queue, not
- * compressible, no connection) is said, in an alert
- */
-const compressItem = computed<MenuItem>(() => ({
-  label: COMPRESS_LABEL,
-  icon: ICON_COMPRESS,
-  row: 'tools',
-  // already waiting or compressing (started from this or another device)
-  disabled: compressQueued.value,
-  disabledReason: 'Already in the compress queue',
-  async run() {
-    pulseCompress()
-    queueCompress([props.entry]).then(
-      ({ refused }) => {
-        if (refused[0]) alert(`${props.entry.name}: ${refused[0].error}`)
-      },
-      (e: unknown) => alert(e instanceof Error ? e.message : 'Compressing failed'),
-    )
-    return null
-  },
-}))
-
-/**
- * Like Compress, but the compressed file takes the original's place, with its
- * name, heart and views, instead of being saved beside it (the original goes
- * to the trash), once the queue is done. Asks first. Nothing is replaced if it
- * wouldn't get smaller
- */
-const compressReplaceItem = computed<MenuItem>(() => ({
-  label: COMPRESS_REPLACE_LABEL,
-  icon: ICON_REPLACE,
-  row: 'tools',
-  disabled: compressQueued.value,
-  disabledReason: 'Already in the compress queue',
-  confirm: {
-    message: REPLACE_CONFIRM.replace('{name}', props.entry.name),
-    confirmLabel: 'Compress & replace',
-  },
-  async run() {
-    pulseCompress()
-    queueCompress([props.entry], true).then(
-      ({ refused }) => {
-        if (refused[0]) alert(`${props.entry.name}: ${refused[0].error}`)
-      },
-      (e: unknown) => alert(e instanceof Error ? e.message : 'Compressing failed'),
-    )
-    return null
-  },
-}))
-
 /**
  * Selection mode (App.vue): closes the menu and turns it on with this file
  * already picked, to pick more and move or delete them together. Not shown
@@ -259,7 +196,6 @@ const isMedia = props.entry.kind === 'image' || props.entry.kind === 'video'
 const menuItems = computed<MenuItem[]>(() => [
   ...(props.entry.needs_fix ? [fixItem] : []),
   ...(isMedia ? [downloadItem] : []),
-  ...(isCompressible(props.entry) ? [compressItem.value, compressReplaceItem.value] : []),
   ...(selection && !selection.active.value ? [selectItem] : []),
   moveItem,
   trashItem,

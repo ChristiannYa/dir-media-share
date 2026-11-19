@@ -80,7 +80,7 @@ const { hidden } = useScrollHide(
 // whatever the scroll, and come back down when it closes
 
 // ── Compress pressed ──
-// Pressing Compress (a file's menu, which has the bars slid up, or the
+// Pressing Compress (the edit popup, which has the bars slid up, or the
 // selection bar) brings both bars into view, faster than usual, and keeps them
 // there for a moment (even if the page was scrolled down); once they've slid
 // down, the compress indicator pulses (CompressButton.vue)

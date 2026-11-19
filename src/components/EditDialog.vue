@@ -1,10 +1,18 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { entryFileUrl, queueEdit, renameEntry } from '@/api'
-import { pulseCompress } from '@/composables/useCompressQueue'
-import { PROMO_OUTROS, REPLACE_CONFIRM, type PromoOutro } from '@/constants'
+import { entryFileUrl, queueCompress, queueEdit, renameEntry } from '@/api'
+import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
+import {
+  COMPRESS_LABEL,
+  COMPRESS_REPLACE_LABEL,
+  PROMO_OUTROS,
+  REPLACE_CONFIRM,
+  type PromoOutro,
+} from '@/constants'
+import { ICON_COMPRESS, ICON_REPLACE } from '@/icons'
 import type { Entry } from '@/types'
+import { isCompressible } from '@/utils/entry'
 import { formatSize } from '@/utils/format'
 
 /**
@@ -19,6 +27,10 @@ import { formatSize } from '@/utils/format'
  *   looking like the original. Its progress is in the top bar's queue button
  *   (CompressButton.vue), like a compression's. The original is never touched.
  * Save does them in that order, so the copy is named after the new name.
+ *
+ * Under those, a row with Compress and Compress & replace for the file as it
+ * is, without an edit (they used to be in the file's menu): a compressed copy
+ * saved next to it, or put in its place (the original goes to the trash).
  */
 const props = defineProps<{ entry: Entry }>()
 /** `changed`: the name was saved, so the listing should be reloaded */
@@ -639,7 +651,7 @@ const error = ref('')
 
 /**
  * Compress the edited copy too, right after it's made (one job in the queue,
- * like Compress in a file's menu); only the compressed one is kept, unless it
+ * like Compress below); only the compressed one is kept, unless it
  * wouldn't get smaller
  */
 const compressAfter = ref(false)
@@ -694,6 +706,55 @@ async function save(replace = false) {
   }
 }
 
+// ── Compress (the file as it is, without an edit) ──
+
+/** Videos and photos the server can compress (the row isn't shown otherwise) */
+const canCompress = isCompressible(props.entry)
+const { activePaths } = useCompressQueue()
+/** Already waiting or compressing (started here, from the selection bar, or another device) */
+const compressQueued = computed(() => activePaths.value.has(props.entry.path))
+/** Adding it to the queue: the server hasn't answered yet */
+const queueing = ref(false)
+
+/**
+ * Why the compress buttons are greyed out, said under them (phones have no
+ * tooltips); null if they aren't. Not while there's an edit pending: it would
+ * be lost when the dialog closes ("Compress it too" compresses the edited copy)
+ */
+const compressBlocked = computed(() => {
+  if (compressQueued.value) return 'Already in the compress queue'
+  if (hasChanges.value) {
+    return 'Save or reset the edit first to compress the file as it is (or tick "Compress it too" to compress the edited copy)'
+  }
+  return null
+})
+
+/**
+ * Adds this file, as it is, to the server's compress queue (like Compress in
+ * the selection bar), then closes; its progress is in the top bar's compress
+ * button (CompressButton.vue). With `replace` (asks first), the compressed
+ * file takes its place, with its name, heart and views, and the original goes
+ * to the trash; nothing is replaced if it wouldn't get smaller. A refusal
+ * (already queued, no connection) is said here, and the dialog stays open
+ */
+async function compress(replace = false) {
+  if (!canCompress || saving.value || queueing.value || compressBlocked.value) return
+  if (replace && !confirm(REPLACE_CONFIRM.replace('{name}', props.entry.name))) return
+  pulseCompress()
+  queueing.value = true
+  error.value = ''
+  video.value?.pause()
+  try {
+    const { refused } = await queueCompress([props.entry], replace)
+    if (refused[0]) error.value = refused[0].error
+    else close()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : 'Compressing failed'
+  } finally {
+    queueing.value = false
+  }
+}
+
 /** Closes; if the name was saved, the folder is listed again */
 function close() {
   if (anythingSaved) emit('changed')
@@ -714,7 +775,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
     large
     :title="`Edit ${entry.name}`"
     :subtitle="cropPixels"
-    :locked="saving"
+    :locked="saving || queueing"
     @close="close"
   >
     <!-- the file itself: its name -->
@@ -935,7 +996,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
     <!-- not an edit: what happens to the copy once the edit has made it.
          Only means something once there's a copy to make (trim / crop) -->
-    <p class="after-title">After the edit</p>
+    <p class="section-title">After the edit</p>
     <label class="check" :class="{ off: !makesCopy }">
       <input v-model="compressAfter" type="checkbox" :disabled="saving || !makesCopy" />
       <span class="box" aria-hidden="true">
@@ -950,6 +1011,41 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
         <small>Once the edited copy is made; only the compressed one is kept</small>
       </span>
     </label>
+
+    <!-- not an edit either: the file as it is, compressed (a copy next to it,
+         or in its place), in one row -->
+    <template v-if="canCompress">
+      <p class="section-title">Compress as it is</p>
+      <div class="compress-row">
+        <button
+          type="button"
+          class="compress-button"
+          :disabled="saving || queueing || !!compressBlocked"
+          :title="
+            compressBlocked ??
+            'Save a smaller copy of this file next to it, looking the same (in the background)'
+          "
+          @click="compress()"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+          {{ COMPRESS_LABEL }}
+        </button>
+        <button
+          type="button"
+          class="compress-button replace"
+          :disabled="saving || queueing || !!compressBlocked"
+          :title="
+            compressBlocked ??
+            'Compress this file and put the result in its place (the original goes to the trash)'
+          "
+          @click="compress(true)"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_REPLACE" /></svg>
+          {{ COMPRESS_REPLACE_LABEL }}
+        </button>
+      </div>
+      <p v-if="compressBlocked" class="hint">{{ compressBlocked }}</p>
+    </template>
 
     <p v-if="error" class="error">{{ error }}</p>
 
@@ -1403,9 +1499,9 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
   cursor: default;
 }
 
-/* ── "After the edit": set apart from the edit's tools above by a line, with
-   a small heading, as it's not part of the edit but done to its copy after ── */
-.after-title {
+/* ── "After the edit" / "Compress as it is": set apart from the edit's tools
+   above by a line, with a small heading, as they're not part of the edit ── */
+.section-title {
   margin: 0;
   padding-top: 0.7rem;
   border-top: 1px solid var(--edge);
@@ -1520,6 +1616,64 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
   .box svg {
     transition: none;
   }
+}
+
+/* ── "Compress as it is": its two buttons side by side, the same width, in
+   the Trim row's buttons' style (dark fill, the edge) ── */
+.compress-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.compress-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.5rem;
+  border: 1px solid var(--edge);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: #ddd;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.compress-button svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.compress-button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.compress-button:focus-visible {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 1px;
+}
+
+.compress-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* the original goes to the trash: the red of "Replace original" */
+.compress-button.replace {
+  color: #f07060;
+  border-color: rgba(231, 76, 60, 0.35);
+}
+
+.compress-button.replace:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.14);
+  color: #ff8a7a;
 }
 
 /* ── Messages ── */

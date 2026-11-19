@@ -224,7 +224,7 @@ function progressText(job: CompressJob): string {
 <template>
   <ModalDialog :title="title" :subtitle="subtitle" wide @close="emit('close')">
     <p v-if="list.length === 0" class="empty">
-      Nothing is being compressed or edited. Use Compress in a file's menu, or on a selection;
+      Nothing is being compressed or edited. Use Compress in a file's Edit popup, or on a selection;
       the trimmed / cropped copies saved from Edit show up here too.
     </p>
 

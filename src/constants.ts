@@ -385,9 +385,9 @@ export const UPLOAD_ACCEPT = 'image/*,video/*,.heic,.mkv,.mp3'
  * mostly starves the gallery without making the batch faster.
  */
 export const UPLOAD_CONCURRENCY = 3
-/** File menu item and selection bar button that save compressed copies of videos and photos */
+/** Edit popup and selection bar button that save compressed copies of videos and photos */
 export const COMPRESS_LABEL = 'Compress'
-/** File menu item that compresses a video / photo and puts the result in its place (no copy) */
+/** Edit popup and selection bar button that compress a video / photo and put the result in its place (no copy) */
 export const COMPRESS_REPLACE_LABEL = 'Compress & replace'
 /**
  * Asked before a compression or an edit replaces the original ({name}: the

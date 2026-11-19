@@ -6,12 +6,13 @@ import { queueCompress, trashFile } from '@/api'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { RELOAD_GALLERY_KEY } from '@/composables/useGallery'
 import { popupsGone } from '@/composables/usePopupOpen'
-import { COMPRESS_LABEL } from '@/constants'
+import { COMPRESS_LABEL, COMPRESS_REPLACE_LABEL } from '@/constants'
 import {
   ICON_CHECK,
   ICON_CLOSE,
   ICON_COMPRESS,
   ICON_FOLDER_MOVE,
+  ICON_REPLACE,
   ICON_SELECT_ALL,
   ICON_SELECT_NONE,
   ICON_TRASH,
@@ -26,12 +27,13 @@ import { puffAway } from '@/utils/puff'
  * menu: FileMenu.vue). Icon buttons only (their names are in their titles),
  * in three rows:
  *  1. how many files are picked, and their size
- *  2. compress, move
+ *  2. compress, compress & replace, move
  *  3. on the left delete and cancel, on the right select all / none and done
  *
  * Selection mode ends (`done`, which also drops the picks) on cancel, done,
- * and once a move or a trashing went through. A move picker or trash prompt
- * closed without doing anything keeps it on; compressing keeps it on too.
+ * and once a move or a trashing went through. A move picker or trash /
+ * replace prompt closed without doing anything keeps it on; compressing (and
+ * compressing & replacing) keeps it on too.
  */
 const props = defineProps<{
   /** The picked files */
@@ -69,17 +71,20 @@ const NOTE_MS = 4000
 /**
  * Adds the picked videos and photos to the server's compress queue, which
  * works in the background: its progress is in the top bar's compress button
- * (CompressButton.vue). Selection mode stays on
+ * (CompressButton.vue). With `replace`, each compressed file takes its
+ * original's place, with its name, heart and views (the original goes to the
+ * trash; nothing is replaced if it wouldn't get smaller). Selection mode stays on
  */
-async function compressSelected() {
+async function compressSelected(replace = false) {
   if (queueing.value || compressNew.value.length === 0) return
   pulseCompress()
   queueing.value = true
   try {
-    const { queued, refused } = await queueCompress([...compressNew.value])
+    const { queued, refused } = await queueCompress([...compressNew.value], replace)
+    const what = replace ? 'compressing & replacing' : 'compressing'
     compressNote.value =
       refused.length === 0
-        ? `${queued.length} queued for compressing`
+        ? `${queued.length} queued for ${what}`
         : `${queued.length} queued · ${refused.length} not: ${refused[0]!.error}`
   } catch (e) {
     compressNote.value = e instanceof Error ? e.message : 'Compressing failed'
@@ -90,6 +95,14 @@ async function compressSelected() {
   }
 }
 onUnmounted(() => clearTimeout(noteTimer))
+
+/** Asking before Compress & replace (the originals go to the trash) */
+const confirmingReplace = ref(false)
+
+function replaceSelected() {
+  confirmingReplace.value = false
+  void compressSelected(true)
+}
 
 // ── Move ──
 const moving = ref(false)
@@ -182,7 +195,7 @@ function closeTrash() {
       <span v-if="compressNote" class="note">{{ compressNote }}</span>
     </div>
 
-    <!-- Row 2: compress, move -->
+    <!-- Row 2: compress, compress & replace, move -->
     <div class="bar-row">
       <button
         type="button"
@@ -196,9 +209,25 @@ function closeTrash() {
             ? 'Save a smaller copy of each selected file, looking the same (in the background)'
             : `Save a smaller copy of the ${compressible.length} selected videos and photos, looking the same, in the background (other files are skipped)`
         "
-        @click="compressSelected"
+        @click="compressSelected()"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+      </button>
+      <button
+        type="button"
+        class="bar-button"
+        :disabled="compressNew.length === 0 || queueing"
+        :aria-label="COMPRESS_REPLACE_LABEL"
+        :title="
+          compressible.length > 0 && compressNew.length === 0
+            ? 'Already in the compress queue'
+            : compressible.length === count
+            ? 'Compress each selected file and put it in the original\'s place (the original goes to the trash)'
+            : `Compress the ${compressible.length} selected videos and photos and put each in its original's place (the originals go to the trash; other files are skipped)`
+        "
+        @click="confirmingReplace = true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_REPLACE" /></svg>
       </button>
       <button
         type="button"
@@ -264,6 +293,27 @@ function closeTrash() {
     </div>
 
     <MovePicker v-if="moving" :entries="selected" @close="moving = false" @moved="onMoved" />
+
+    <ModalDialog
+      v-if="confirmingReplace"
+      :title="`Compress & replace ${compressNew.length} ${compressNew.length === 1 ? 'file' : 'files'}?`"
+      subtitle="Each one takes its original's place once it is done. The originals go to the trash (they can be restored from there); a file that wouldn't get smaller is left as it is."
+      @close="confirmingReplace = false"
+    >
+      <div class="dialog-actions">
+        <button type="button" class="dialog-button" @click="confirmingReplace = false">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="dialog-button danger"
+          :disabled="compressNew.length === 0 || queueing"
+          @click="replaceSelected"
+        >
+          {{ COMPRESS_REPLACE_LABEL }}
+        </button>
+      </div>
+    </ModalDialog>
 
     <ModalDialog
       v-if="confirmingTrash"

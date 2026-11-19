@@ -1,4 +1,5 @@
 {
+  "sortBy": "size",
   "mostPlayedCount": 6,
   "viewAfterSeconds": 5,
   "previewSpeed": 1.35,
