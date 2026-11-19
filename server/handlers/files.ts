@@ -25,6 +25,8 @@ import { folderPart, movePreviews, type PreviewMove } from '../previewNames.ts'
 import { countPlay, forgetPlays, movePlays, setPlayCount } from '../plays.ts'
 import { moveToTrash } from '../trash.ts'
 import { forgetView, markViewed, moveViews } from '../views.ts'
+import { addWatchTime, forgetWatchTime, moveWatchTime, setWatchTime } from '../watchTime.ts'
+import { WATCH_TIME_MAX_ADD_MS, WATCH_TIME_MAX_SET_MS } from '../consts/server.ts'
 
 /** GET /api/folders?path= : names and paths of the subfolders of a folder */
 export const folders: Handler = async (_req, res, url) => {
@@ -68,6 +70,9 @@ export const trashFile: Handler = async (_req, res, url) => {
   )
   await forgetPlays(url.searchParams.get('path') ?? '').catch((e) =>
     console.error('Updating the play counts failed:', e),
+  )
+  await forgetWatchTime(url.searchParams.get('path') ?? '').catch((e) =>
+    console.error('Updating the time watched failed:', e),
   )
   await forgetHeatmap(url.searchParams.get('path') ?? '').catch((e) =>
     console.error('Updating the heatmaps failed:', e),
@@ -120,12 +125,63 @@ export const viewedFile: Handler = async (req, res, url) => {
   }
 }
 
+/**
+ * POST /api/watch-time?path=&ms= : the video was just watched, or the photo
+ * shown, in the viewer for `ms` more (a whole number, up to
+ * WATCH_TIME_MAX_ADD_MS): added to its time watched (server/watchTime.ts).
+ * Answers `{ watched_ms }`, the new total. Dev mode (server/appMode.ts):
+ * nothing is saved, and it's null.
+ */
+export const watchedFile: Handler = async (req, res, url) => {
+  if (isDevMode(req)) return sendJson(res, { watched_ms: null })
+  // kept by the path the listing shows (server/listing.ts looks it up the same way)
+  const rel = url.searchParams.get('path') ?? ''
+  const file = await resolveFile(rel)
+  if (!file || !isMediaName(path.basename(file))) return sendStatus(res, 404)
+  const ms = Number(url.searchParams.get('ms'))
+  if (!Number.isInteger(ms) || ms <= 0 || ms > WATCH_TIME_MAX_ADD_MS) {
+    return sendJson(res, { error: `ms must be a whole number from 1 to ${WATCH_TIME_MAX_ADD_MS}` }, 400)
+  }
+  try {
+    sendJson(res, { watched_ms: await addWatchTime(rel, ms) })
+  } catch (e) {
+    console.error('Saving the time watched failed:', e)
+    sendJson(res, { error: 'The time watched could not be saved' }, 500)
+  }
+}
+
+/**
+ * POST /api/watch-time/set?path=&ms= : sets how long a video / photo was
+ * watched (the metadata dialog), on every device (server/watchTime.ts).
+ * Answers `{ watched_ms }`. Refused in dev mode (server/appMode.ts).
+ */
+export const setWatched: Handler = async (req, res, url) => {
+  if (isDevMode(req)) {
+    return sendJson(res, { error: 'Time watched can only be changed in goon mode' }, 403)
+  }
+  // kept by the path the listing shows (server/listing.ts looks it up the same way)
+  const rel = url.searchParams.get('path') ?? ''
+  const file = await resolveFile(rel)
+  if (!file || !isMediaName(path.basename(file))) return sendStatus(res, 404)
+  const ms = Number(url.searchParams.get('ms'))
+  if (!Number.isInteger(ms) || ms < 0 || ms > WATCH_TIME_MAX_SET_MS) {
+    return sendJson(res, { error: 'Time watched must be 0 to 100 000 hours' }, 400)
+  }
+  try {
+    await setWatchTime(rel, ms)
+  } catch (e) {
+    console.error('Saving the time watched failed:', e)
+    return sendJson(res, { error: 'The time watched could not be saved' }, 500)
+  }
+  sendJson(res, { watched_ms: ms })
+}
+
 /** Highest view count that can be set by hand */
 const MAX_PLAYS = 1_000_000
 
 /**
  * POST /api/plays?path=&count= : sets how many times a video / photo was
- * viewed (the edit dialog), on every device (server/plays.ts). Answers `{ plays }`.
+ * viewed (the metadata dialog), on every device (server/plays.ts). Answers `{ plays }`.
  * Refused in dev mode (server/appMode.ts).
  */
 export const setPlays: Handler = async (req, res, url) => {
@@ -186,6 +242,9 @@ export const moveFile: Handler = async (_req, res, url) => {
   )
   await movePlays([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
     console.error('Updating the play counts failed:', e),
+  )
+  await moveWatchTime([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
+    console.error('Updating the time watched failed:', e),
   )
   await moveHeatmaps([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
@@ -417,6 +476,9 @@ export const numberFiles: Handler = async (_req, res, url) => {
   await movePlays(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
     console.error('Updating the play counts failed:', e),
   )
+  await moveWatchTime(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
+    console.error('Updating the time watched failed:', e),
+  )
   await moveHeatmaps(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
   )
@@ -500,6 +562,9 @@ export const renameEntry: Handler = async (_req, res, url) => {
   await moveViews([[rel, newRel]]).catch((e) => console.error('Updating the views failed:', e))
   await movePlays([[rel, newRel]]).catch((e) =>
     console.error('Updating the play counts failed:', e),
+  )
+  await moveWatchTime([[rel, newRel]]).catch((e) =>
+    console.error('Updating the time watched failed:', e),
   )
   await moveHeatmaps([[rel, newRel]]).catch((e) =>
     console.error('Updating the heatmaps failed:', e),

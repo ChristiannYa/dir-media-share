@@ -57,6 +57,8 @@ import {
   ROUTE_TRASH_FILE,
   ROUTE_UPLOAD_FILE,
   ROUTE_VIEWED,
+  ROUTE_WATCH_TIME,
+  ROUTE_SET_WATCH_TIME,
 } from './consts/routes.ts'
 import { PASSWORD_ENV } from './consts/server.ts'
 import { STORYBOARD_DIR } from './consts/storyboards.ts'
@@ -94,6 +96,8 @@ import {
   trashFile,
   uploadFile,
   viewedFile,
+  setWatched,
+  watchedFile,
 } from './handlers/files.ts'
 import { folderPreviewHandler } from './handlers/folderPreview.ts'
 import { getHeatmap, postHeatmap } from './handlers/heatmap.ts'
@@ -148,6 +152,8 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_NUMBER_FILES]: { POST: numberFiles },
   [ROUTE_FAVORITE]: { POST: favoriteFile },
   [ROUTE_VIEWED]: { POST: viewedFile },
+  [ROUTE_WATCH_TIME]: { POST: watchedFile },
+  [ROUTE_SET_WATCH_TIME]: { POST: setWatched },
   [ROUTE_MOST_PLAYED]: { GET: mostPlayed },
   [ROUTE_HEARTED]: { GET: hearted },
   [ROUTE_SET_PLAYS]: { POST: setPlays },

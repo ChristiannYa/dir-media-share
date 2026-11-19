@@ -192,6 +192,10 @@ export const API = {
   setPlays: '/api/plays',
   /** A video was played in the viewer: it and its folders get "last viewed" = now, and one more play (POST): ?path= */
   viewed: '/api/viewed',
+  /** A video was watched / photo shown for a while: adds that time to its time watched (POST): ?path=&ms= */
+  watchTime: '/api/watch-time',
+  /** Sets how long a video / photo was watched (POST): ?path=&ms= */
+  setWatchTime: '/api/watch-time/set',
   /** Adds or removes the heart of a video or photo: POST ?path=&on=1|0 */
   favorite: '/api/favorite',
   /**
@@ -239,6 +243,15 @@ export const HEATMAP_BINS = 100
 export const HEATMAP_MAX_ADD = 50
 /** While a video plays, what was watched is sent this often (and when it's closed) */
 export const HEATMAP_FLUSH_MS = 30_000
+/** While a video / photo is open in the viewer, its time watched is sent this often (and when it's closed) */
+export const WATCH_TIME_FLUSH_MS = 30_000
+/** Most time watched one report may add (ms; the server refuses more): WATCH_TIME_MAX_ADD_MS there */
+export const WATCH_TIME_MAX_ADD_MS = 6 * 60 * 60 * 1000
+/**
+ * Folder cards show their time watched only below these (".bin/cinema" and
+ * deeper; not .bin itself). Matched without leading dots and ignoring case
+ */
+export const WATCH_TIME_FOLDER_PARENTS: readonly string[] = ['bin']
 
 /** Original files are served under this prefix (path segments are URL-encoded after it) */
 export const FILES_PREFIX = '/files/'
@@ -381,7 +394,7 @@ export const BADGES = {
   compressed: { priority: 20, kind: 'temporal' },
   /** A folder card: how many compressed copies not opened yet are directly inside it */
   compressedFolder: { priority: 20, kind: 'temporal' },
-  /** How many times a video was played (goon mode): first in the row */
+  /** How many times a video / photo was played, and its time watched below: first in the row */
   plays: { priority: 10, kind: 'metadata' },
   /** An icon: the preview clip is the whole video, not slices; after the views in the row */
   whole: { priority: 5, kind: 'metadata' },
@@ -400,6 +413,11 @@ export const COMPRESSIBLE_EXTENSIONS: readonly string[] = ['mp4', 'm4v', 'mov', 
 export const COMPRESSIBLE_IMAGE_EXTENSIONS: readonly string[] = ['jpg', 'jpeg', 'png', 'webp']
 /** File menu item that opens the edit dialog (trim a video's ends, crop the edges) */
 export const EDIT_LABEL = 'Edit'
+/** File menu item that opens the metadata dialog (views, time watched) */
+export const EDIT_METADATA_LABEL = 'Edit metadata'
+/** Highest views / time watched (hours) the metadata dialog takes; the server's limits */
+export const MAX_SET_PLAYS = 1_000_000
+export const MAX_SET_WATCH_HOURS = 100_000
 /**
  * The logo outro (sound and animation) an app adds to the end of a video
  * downloaded from it: the edit dialog's "Trim" buttons cut its last `secs`
@@ -454,6 +472,16 @@ export const MOST_PLAYED_COUNT = 10
 export const MOST_PLAYED_TITLE = 'Most viewed'
 /** Shown in that section while nothing in the folder was played yet */
 export const MOST_PLAYED_EMPTY_TEXT = 'Nothing viewed here...yet'
+/**
+ * How many the "Most watch time" section (under "Most viewed", in the same
+ * folders, listing the same kind) shows (default; see Settings → Most
+ * played): the longest watched first. 0 = no section
+ */
+export const MOST_WATCHED_COUNT = 6
+/** Title of that section */
+export const MOST_WATCHED_TITLE = 'Most watch time'
+/** Shown in that section while nothing in the folder was watched yet */
+export const MOST_WATCHED_EMPTY_TEXT = 'Nothing watched here...yet'
 /**
  * How many hearted videos / photos the "Hearted" section (under "Most
  * played", only where it lists videos and photos: .bin/<x>/<y>) shows (default; see Settings → Most played).

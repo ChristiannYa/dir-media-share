@@ -2,15 +2,18 @@
 import { computed, inject, ref } from 'vue'
 import CardMenu from '@/components/CardMenu.vue'
 import EditDialog from '@/components/EditDialog.vue'
+import MetadataDialog from '@/components/MetadataDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import { fileUrl, fixTs, queueCompress, trashFile } from '@/api'
+import { recordsVideoData } from '@/appMode'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { popupsGone } from '@/composables/usePopupOpen'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
   COMPRESS_LABEL,
   EDIT_LABEL,
+  EDIT_METADATA_LABEL,
   FIX_TS_LABEL,
   MOVE_LABEL,
   RENAME_LABEL,
@@ -23,6 +26,7 @@ import {
   ICON_EDIT,
   ICON_FIX,
   ICON_FOLDER_MOVE,
+  ICON_METADATA,
   ICON_RENAME,
   ICON_SELECT,
   ICON_TRASH,
@@ -32,7 +36,7 @@ import { downloadFile } from '@/utils/download'
 import { puffAway } from '@/utils/puff'
 import { isCompressible, isEditable } from '@/utils/entry'
 import { minuteClock } from '@/utils/clock'
-import { formatAgo, formatLongDate, formatSize } from '@/utils/format'
+import { formatAgo, formatLongDate, formatSize, formatWatched } from '@/utils/format'
 
 /**
  * Menu of a video / image / file card: its dates, then icon buttons to fix,
@@ -50,6 +54,7 @@ defineExpose({ open: () => menu.value?.open() })
 
 const picking = ref(false)
 const editing = ref(false)
+const editingMetadata = ref(false)
 const renaming = ref(false)
 /** How far along Fix TS is (0–100); null until the server says */
 const fixPercent = ref<number | null>(null)
@@ -71,8 +76,10 @@ function fixBusyLabel(): string {
 // The menu's buttons are icons only (CardMenu's icon-only): each label is
 // its tooltip and screen-reader name. In rows:
 //  1. Fix TS (only for a .ts that needs it)
-//  2. edit (rename for files that can't be edited), download, compress, select
+//  2. download, compress, select
 //  3. move, trash
+//  4. edit (rename for files that can't be edited), edit metadata (photos and
+//     videos: views, time watched)
 
 const fixItem: MenuItem = {
   label: FIX_TS_LABEL,
@@ -93,12 +100,12 @@ const fixItem: MenuItem = {
   },
 }
 
-/** Videos and photos are renamed in the edit popup (with their views); other files get rename instead */
+/** Videos and photos are renamed in the edit popup; other files get rename instead */
 const editItem: MenuItem = isEditable(props.entry)
   ? {
       label: EDIT_LABEL,
       icon: ICON_EDIT,
-      row: 'tools',
+      row: 'edit',
       async run() {
         editing.value = true
         return null
@@ -107,12 +114,28 @@ const editItem: MenuItem = isEditable(props.entry)
   : {
       label: RENAME_LABEL,
       icon: ICON_RENAME,
-      row: 'tools',
+      row: 'edit',
       async run() {
         renaming.value = true
         return null
       },
     }
+
+/**
+ * Videos and photos: their views and time watched, in the metadata popup
+ * (MetadataDialog.vue). Dev mode: greyed out (nothing is recorded there)
+ */
+const metadataItem = computed<MenuItem>(() => ({
+  label: EDIT_METADATA_LABEL,
+  icon: ICON_METADATA,
+  row: 'edit',
+  disabled: !recordsVideoData.value,
+  disabledReason: 'Views and time watched can only be changed in goon mode',
+  async run() {
+    editingMetadata.value = true
+    return null
+  },
+}))
 
 /** Saves the file to the device, under its own name */
 const downloadItem: MenuItem = {
@@ -200,14 +223,17 @@ const trashItem: MenuItem = {
   },
 }
 
+const isMedia = props.entry.kind === 'image' || props.entry.kind === 'video'
+
 const menuItems = computed<MenuItem[]>(() => [
   ...(props.entry.needs_fix ? [fixItem] : []),
-  editItem,
-  ...(props.entry.kind === 'image' || props.entry.kind === 'video' ? [downloadItem] : []),
+  ...(isMedia ? [downloadItem] : []),
   ...(isCompressible(props.entry) ? [compressItem.value] : []),
   ...(selection && !selection.active.value ? [selectItem] : []),
   moveItem,
   trashItem,
+  editItem,
+  ...(isMedia ? [metadataItem.value] : []),
 ])
 
 /** Its dates, at the top of the menu (they're no longer on the card) */
@@ -226,6 +252,7 @@ const details = computed(() => {
     // how often, on every device (what the "Most played" sections go by)
     const plays = props.entry.plays ?? 0
     list.push({ label: 'Views', value: String(plays) })
+    list.push({ label: 'Time watched', value: formatWatched(props.entry.watched_ms ?? 0) })
   }
   return list
 })
@@ -258,5 +285,11 @@ function onMoved() {
     :entry="entry"
     @changed="emit('changed')"
     @close="editing = false"
+  />
+  <MetadataDialog
+    v-if="editingMetadata"
+    :entry="entry"
+    @changed="emit('changed')"
+    @close="editingMetadata = false"
   />
 </template>

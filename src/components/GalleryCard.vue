@@ -14,13 +14,13 @@ import {
   thumbUrl,
 } from '@/api'
 import { recordsVideoData } from '@/appMode'
-import { TOP_FOLDER_PARENTS, TS_BADGE_TITLE } from '@/constants'
+import { TOP_FOLDER_PARENTS, TS_BADGE_TITLE, WATCH_TIME_FOLDER_PARENTS } from '@/constants'
 import {
   BADGE_STACK_STATE_KEY,
   BADGE_TARGETS_KEY,
   createBadgeStackState,
 } from '@/composables/useBadgeStack'
-import { ICON_COMPRESS, ICON_EDIT, ICON_EYE } from '@/icons'
+import { ICON_CLOCK, ICON_COMPRESS, ICON_EDIT, ICON_EYE } from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
@@ -34,7 +34,7 @@ import {
 } from '@/utils/entry'
 import { findOriginal, revealInGallery } from '@/composables/useGallery'
 import { hasPlayed } from '@/utils/firstPlays'
-import { formatDuration, formatQuality, formatSize } from '@/utils/format'
+import { formatDuration, formatQuality, formatSize, formatWatched } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
 const props = defineProps<{
@@ -95,6 +95,29 @@ function onContextMenu(e: MouseEvent) {
 const showFolderViews = computed(
   () => !!props.entry.plays && props.entry.path.includes('/'),
 )
+
+/**
+ * Folders show the time watched of everything inside them, below the views,
+ * only below .bin (WATCH_TIME_FOLDER_PARENTS: .bin/cinema and deeper, not
+ * .bin itself), and only once something inside was watched
+ */
+const showFolderWatched = computed(() => {
+  const top = props.entry.path.split('/').filter(Boolean)
+  return (
+    !!props.entry.watched_ms &&
+    top.length > 1 &&
+    WATCH_TIME_FOLDER_PARENTS.includes(top[0]!.replace(/^\.+/, '').toLowerCase())
+  )
+})
+
+/** A video / photo's time watched, "12m" (0s if never) */
+const watchedText = computed(() => formatWatched(props.entry.watched_ms ?? 0))
+/** Its tooltip */
+const watchedTitle = computed(() => {
+  const verb = props.entry.kind === 'image' ? 'Shown' : 'Watched'
+  const what = props.entry.kind === 'folder' ? ' (everything inside)' : ''
+  return `${verb} for ${watchedText.value}${what}, on every device`
+})
 
 /**
  * A compressed copy that wasn't opened yet (server/compressedNew.ts): a
@@ -628,14 +651,25 @@ watch(
       <div
         v-if="
           viewsOnly
-            ? showFolderViews
-            : entry.video_count || entry.image_count || showFolderViews || entry.size
+            ? showFolderViews || showFolderWatched
+            : entry.video_count ||
+              entry.image_count ||
+              showFolderViews ||
+              showFolderWatched ||
+              entry.size
         "
         class="folder-badges"
       >
         <!-- videos / images inside (subfolders included), views and total size; zero
              counts are hidden. viewsOnly: just the views -->
-        <span class="badge-glass folder-badge folder-contents">
+        <span
+          v-if="
+            viewsOnly
+              ? showFolderViews
+              : entry.video_count || entry.image_count || showFolderViews || entry.size
+          "
+          class="badge-glass folder-badge folder-contents"
+        >
           <span v-if="entry.video_count && !viewsOnly" class="count" title="Videos">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -672,6 +706,15 @@ watch(
             </svg>
             {{ formatSize(entry.size) }}
           </span>
+        </span>
+        <!-- below the views: how long what's inside was watched (under .bin only) -->
+        <span
+          v-if="showFolderWatched"
+          class="badge-glass folder-badge folder-watched"
+          :title="watchedTitle"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+          {{ watchedText }}
         </span>
       </div>
       <!-- the name, on the bottom of the preview over a band of blur (.force-glass:
@@ -734,21 +777,28 @@ watch(
           </div>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
-        <!-- how many times it was shown in the viewer, like a video's (in the
-             metadata row; not in selection mode: the check is there) -->
+        <!-- how many times it was shown in the viewer, like a video's, and for
+             how long below it (in the metadata row; not in selection mode:
+             the check is there) -->
         <StackBadge
           v-if="!viewsOnly"
           badge="plays"
           :show="!selecting && !bare"
         >
-          <span
-            class="info-badge plays-badge"
-            :class="badgeGlass"
-            :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
-            {{ entry.plays ?? 0 }}
-          </span>
+          <div class="plays-stack">
+            <span
+              class="info-badge plays-badge"
+              :class="badgeGlass"
+              :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+              {{ entry.plays ?? 0 }}
+            </span>
+            <span class="info-badge watched-badge" :class="badgeGlass" :title="watchedTitle">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+              {{ watchedText }}
+            </span>
+          </div>
         </StackBadge>
       </div>
       <!-- the app led you here: the loaded sweep, once (see the script) -->
@@ -762,16 +812,22 @@ watch(
         <span class="sweep-colors" />
         <span class="sweep-frost force-glass" />
       </div>
-      <!-- viewsOnly: just how many times it was shown, bottom-right like a folder's -->
-      <span
-        v-if="viewsOnly && !bare"
-        class="info-badge plays-badge views-only"
-        :class="badgeGlass"
-        :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
-        {{ entry.plays ?? 0 }}
-      </span>
+      <!-- viewsOnly: just how many times it was shown, and for how long below
+           it, bottom-right like a folder's -->
+      <div v-if="viewsOnly && !bare" class="views-only-badges">
+        <span
+          class="info-badge plays-badge"
+          :class="badgeGlass"
+          :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+          {{ entry.plays ?? 0 }}
+        </span>
+        <span class="info-badge watched-badge" :class="badgeGlass" :title="watchedTitle">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+          {{ watchedText }}
+        </span>
+      </div>
       <!-- double tap: a big heart in the middle (see the script) -->
       <span
         v-if="popping || unliking"
@@ -906,11 +962,32 @@ watch(
           </div>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
+        <!-- the views, and the time watched below them -->
         <StackBadge
           v-if="!viewsOnly"
           badge="plays"
           :show="!selecting && !bare"
         >
+          <div class="plays-stack">
+            <span
+              class="info-badge plays-badge"
+              :class="badgeGlass"
+              :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+              {{ entry.plays ?? 0 }}
+            </span>
+            <span class="info-badge watched-badge" :class="badgeGlass" :title="watchedTitle">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+              {{ watchedText }}
+            </span>
+          </div>
+        </StackBadge>
+      </div>
+      <!-- viewsOnly (the "Most played" section): just the views and the time
+           watched below them, bottom-right, where the folder cards have theirs -->
+      <Transition name="mode-badge">
+        <div v-if="viewsOnly && !selecting && !bare" class="views-only-badges">
           <span
             class="info-badge plays-badge"
             :class="badgeGlass"
@@ -919,20 +996,11 @@ watch(
             <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
             {{ entry.plays ?? 0 }}
           </span>
-        </StackBadge>
-      </div>
-      <!-- viewsOnly (the "Most played" section): just the views, bottom-right,
-           where the folder cards have theirs -->
-      <Transition name="mode-badge">
-        <span
-          v-if="viewsOnly && !selecting && !bare"
-          class="info-badge plays-badge views-only"
-          :class="badgeGlass"
-          :title="`${playsLabel(entry.plays ?? 0)}, on every device`"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
-          {{ entry.plays ?? 0 }}
-        </span>
+          <span class="info-badge watched-badge" :class="badgeGlass" :title="watchedTitle">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+            {{ watchedText }}
+          </span>
+        </div>
       </Transition>
       <!-- top-right: the quality -->
       <span
@@ -1432,16 +1500,21 @@ watch(
 
 /* bottom row of a folder card: its contents, on the right (its dates are in
    its menu) */
+/* the counts pill, and the time watched below it, on the right */
 .folder-badges {
   position: absolute;
   bottom: var(--badge-inset);
   left: var(--badge-inset);
   right: var(--badge-inset);
   display: flex;
-  flex-wrap: wrap-reverse;
-  align-items: center;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 0.3rem;
   pointer-events: none;
+}
+
+.folder-watched {
+  font-variant-numeric: tabular-nums;
 }
 
 /* above the name band, on the cards that have one (not "Most played") */
@@ -1728,8 +1801,18 @@ watch(
 }
 
 /* the views and the other badges of the stack are inline, not positioned */
-.badge-stack .plays-badge {
+.badge-stack .plays-badge,
+.badge-stack .watched-badge {
   font-variant-numeric: tabular-nums;
+}
+
+/* the views, and the time watched under them: one slot of the row, so the
+   ones after it ("Whole video") stay beside the views */
+.plays-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
 }
 
 /* ── "Compressed!" ──
@@ -1780,16 +1863,19 @@ watch(
   filter: brightness(0.9);
 }
 
-/* the "Most played" section: just the views, nothing else on the preview, so
-   bottom-right, like the views of the folder cards there (elsewhere they're in
-   the top-left stack, above) */
-.plays-badge.views-only {
+/* the "Most played" section: just the views and the time watched under them,
+   nothing else on the preview, so bottom-right, like the folder cards there
+   (elsewhere they're in the top-left stack, above) */
+.views-only-badges {
   position: absolute;
   bottom: var(--badge-inset);
   right: var(--badge-inset);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
-  /* switching the app mode: it pops in from (or shrinks into) its corner */
   transform-origin: bottom right;
 }
 

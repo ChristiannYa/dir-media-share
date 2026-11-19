@@ -50,9 +50,12 @@ const boxAspect = computed(() => loadedAspect.value || props.aspect || 16 / 9)
  * Most played → Counts as a view after); once per opening.
  * `controls`: the controls were shown or hidden (also once at the start).
  * The viewer shows and hides everything it puts over the video with them
- * (MediaLightbox.vue, "What's over the photo / video")
+ * (MediaLightbox.vue, "What's over the photo / video").
+ * `watched`: it just played on for `ms` more, for its time watched (App.vue
+ * adds them up): once the view counts, the seconds that made it, then each
+ * small step of normal playback. Not in dev mode
  */
-const emit = defineEmits<{ played: []; controls: [visible: boolean] }>()
+const emit = defineEmits<{ played: []; controls: [visible: boolean]; watched: [ms: number] }>()
 
 const root = ref<HTMLElement | null>(null)
 const video = ref<HTMLVideoElement | null>(null)
@@ -111,12 +114,15 @@ function onMetadata() {
   if (r.videoPaused) video.value?.pause()
 }
 
-// ── Counting a view ──
+// ── Counting a view, then the time watched ──
 // Only time actually watched adds up: the position moving forward by small
 // steps while it plays. Pauses add nothing, and skips, seeks and fast hold
-// seeking (big jumps between two updates) don't count.
+// seeking (big jumps between two updates) don't count. It's a total over the
+// opening, not one stretch: a seek doesn't start it over.
+// Once it reaches the view's threshold (the "+1"), the time watched starts:
+// those seconds are reported at once, then every step after them.
 
-/** Seconds of the video watched so far in this opening */
+/** Seconds of the video watched so far in this opening (until the view counts) */
 let watched = 0
 /** Position at the last update; null right after a seek */
 let lastTime: number | null = null
@@ -131,23 +137,32 @@ function viewThreshold(duration: number): number {
 
 function trackWatched() {
   const el = video.value
-  if (!el || reportedPlay) return
-  // dev mode: no view is counted, so no "+1" either (src/appMode.ts)
+  if (!el) return
+  // dev mode: no view is counted, so no "+1" and no time watched either (src/appMode.ts)
   if (!recordsVideoData.value) {
     lastTime = null
     return
   }
   const t = el.currentTime
+  let step = 0
   if (!el.paused && !el.seeking && lastTime !== null) {
-    const step = t - lastTime
+    const moved = t - lastTime
     // backwards (a loop, a seek back) or a jump: not watched
-    if (step > 0 && step <= MAX_WATCH_STEP_S) watched += step
+    if (moved > 0 && moved <= MAX_WATCH_STEP_S) step = moved
   }
   lastTime = t
+  // the view counted already: this step is time watched
+  if (reportedPlay) {
+    if (step > 0) emit('watched', step * 1000)
+    return
+  }
+  watched += step
   if (watched >= viewThreshold(el.duration)) {
     reportedPlay = true
     emit('played')
     viewPop.value = true
+    // the time watched starts now, with the seconds that made the view
+    if (watched > 0) emit('watched', watched * 1000)
   }
 }
 

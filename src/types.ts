@@ -39,6 +39,12 @@ export interface Entry {
    * folders: those of everything inside added up (shared by every device)
    */
   plays?: number | null
+  /**
+   * videos and photos: how long it was watched / shown in the viewer, all
+   * openings added up (ms); folders: those of everything inside added up
+   * (shared by every device)
+   */
+  watched_ms?: number | null
 }
 
 export type CompressJobState =

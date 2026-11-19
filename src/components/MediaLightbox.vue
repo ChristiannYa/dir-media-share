@@ -66,6 +66,11 @@ const emit = defineEmits<{
    * time (Settings → Most played): it counts as viewed ("last viewed", plays)
    */
   viewed: [entry: Entry]
+  /**
+   * A video played on, or a photo was on screen, for `ms` more (for its time
+   * watched; App.vue adds them up and sends them). Not in dev mode
+   */
+  watched: [entry: Entry, ms: number]
 }>()
 
 const root = ref<HTMLElement | null>(null)
@@ -307,6 +312,8 @@ function stopPhotoView() {
   seenSince = null
   photoCounted = true
   photoPop.value = false
+  endPhotoWatch()
+  watchEntry = null
 }
 
 /** The photo has just loaded: its time of being seen starts */
@@ -336,10 +343,50 @@ function countPhotoView() {
   if (!recordsVideoData.value) return
   emit('viewed', props.entry)
   photoPop.value = true
+  // the time watched starts now, with the time seen that made the view
+  const seen = seenMs + (seenSince === null ? 0 : performance.now() - seenSince)
+  if (seen > 0) emit('watched', props.entry, seen)
+  watchEntry = props.entry
+  startPhotoWatch()
 }
+
+// ── A photo's time watched ──
+// Starts once its view counts (the "+1", countPhotoView, which reports the
+// time seen until then), then all the time it stays on screen in the viewer
+// with the tab visible: reported when it goes (another one, closing) and
+// when the tab is hidden
+
+/** The photo being timed (null: none, e.g. a video is shown, or its view hasn't counted yet) */
+let watchEntry: Entry | null = null
+/** When its running stretch started (performance.now()); null while it isn't running */
+let watchSince: number | null = null
+
+function startPhotoWatch() {
+  if (watchEntry && watchSince === null && !document.hidden) watchSince = performance.now()
+}
+
+/** Reports the running stretch, if any (dev mode: dropped, src/appMode.ts) */
+function endPhotoWatch() {
+  if (watchEntry && watchSince !== null && recordsVideoData.value) {
+    emit('watched', watchEntry, performance.now() - watchSince)
+  }
+  watchSince = null
+}
+
+// the app mode switched while a photo is shown: the stretch so far belongs to
+// the mode it was in (reported in goon, dropped in dev), and a new one starts
+watch(recordsVideoData, (on) => {
+  if (!on && watchEntry && watchSince !== null) {
+    emit('watched', watchEntry, performance.now() - watchSince)
+  }
+  watchSince = null
+  startPhotoWatch()
+})
 
 /** The tab was hidden or shown again: the time seen stops and starts with it */
 function onVisibilityChange() {
+  if (document.hidden) endPhotoWatch()
+  else startPhotoWatch()
   if (photoCounted) return
   if (document.hidden) {
     if (seenSince !== null) seenMs += performance.now() - seenSince
@@ -520,6 +567,7 @@ onUnmounted(() => {
   document.removeEventListener('visibilitychange', onVisibilityChange)
   clearTimeout(settleTimer)
   clearTimeout(photoTimer)
+  endPhotoWatch()
 })
 </script>
 
@@ -638,6 +686,7 @@ onUnmounted(() => {
           :resume="videoResume"
           :aspect="entry.width && entry.height ? entry.width / entry.height : null"
           @played="emit('viewed', entry)"
+          @watched="emit('watched', entry, $event)"
           @controls="videoControlsVisible = $event"
         />
       </div>

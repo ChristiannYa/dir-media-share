@@ -17,6 +17,7 @@ import NightSky from '@/components/NightSky.vue'
 import SelectionBar from '@/components/SelectionBar.vue'
 import SettingsDialog from '@/components/SettingsDialog.vue'
 import {
+  addWatchTime,
   fetchHearted,
   fetchMostPlayed,
   markCompressedSeen,
@@ -36,8 +37,12 @@ import {
   MOST_PLAYED_EMPTY_TEXT,
   MOST_PLAYED_PARENTS,
   MOST_PLAYED_TITLE,
+  MOST_WATCHED_EMPTY_TEXT,
+  MOST_WATCHED_TITLE,
   REVEAL_MS,
   SHUTDOWN_CONFIRM,
+  WATCH_TIME_FLUSH_MS,
+  WATCH_TIME_MAX_ADD_MS,
 } from '@/constants'
 import { useAlphabetIndex } from '@/composables/useAlphabetIndex'
 import { playPowerOff } from '@/composables/usePowerOff'
@@ -72,16 +77,20 @@ const { rootFolderName, currentPath, entries, breadcrumbs, navigate, reload, ini
     media.reset()
     mostPlayed.value = []
     mostPlayedLoaded.value = false
+    mostWatched.value = []
+    mostWatchedLoaded.value = false
     clearHearted()
   },
   onEntries: (list) => {
     media.markLoading(list)
     void loadMostPlayed()
+    void loadMostWatched()
     void loadHearted()
   },
   onReload: (list) => {
     media.update(list)
     void loadMostPlayed()
+    void loadMostWatched()
     void loadHearted()
   },
 })
@@ -148,6 +157,57 @@ function clearMostPlayed() {
   mostPlayedLoaded.value = false
   media.setExtra([], mostPlayedKey, 'most-played')
 }
+
+// ── Most watch time ──
+// Under "Most viewed", in the same folders and of the same kind (folders or
+// videos and photos), but by time watched (server/watchTime.ts): the longest
+// watched first (Settings → Most played → Watch time shown)
+
+const mostWatched = ref<Entry[]>([])
+/** The section's list for the open folder has arrived (even if empty) */
+const mostWatchedLoaded = ref(false)
+/** The section's cards keep their own loading / preview state, apart from the other cards of the same file */
+const mostWatchedKey = (entry: Entry) => `most-watched:${entry.path}`
+/** Only the latest request may fill the section */
+let mostWatchedRequest = 0
+
+async function loadMostWatched() {
+  const request = ++mostWatchedRequest
+  const path = currentPath.value
+  const count = settings.mostWatchedCount
+  const kind = mostPlayedKind.value
+  if (!kind || count <= 0) return clearMostWatched()
+  try {
+    const list = await fetchMostPlayed(path, count, kind, 'time')
+    if (request !== mostWatchedRequest || currentPath.value !== path) return
+    media.setExtra(list, mostWatchedKey, 'most-watched')
+    mostWatched.value = list
+    mostWatchedLoaded.value = true
+  } catch (e) {
+    console.warn(e)
+  }
+}
+
+// a new count (Settings) shows right away
+watch(() => settings.mostWatchedCount, () => void loadMostWatched())
+
+function clearMostWatched() {
+  mostWatched.value = []
+  mostWatchedLoaded.value = false
+  media.setExtra([], mostWatchedKey, 'most-watched')
+}
+
+/**
+ * Every card's entry shown now: the grid's and the sections' (a file can have
+ * a card in several), so a change shows on all of them
+ */
+const shownEntries = () => [
+  ...entries.value,
+  ...mostPlayed.value,
+  ...mostWatched.value,
+  ...hearted.value,
+  ...heartedPool,
+]
 
 // ── Hearted ──
 // Under "Most played", only where it lists videos and photos (.bin/<x>/<y>,
@@ -274,13 +334,22 @@ const columnStyle = computed(() =>
  * everything inside it), for the top bar
  */
 const folderStats = computed(() => {
-  // hearts and views count everything inside, subfolders included (like the
-  // size); views is null if the listing has none
-  const stats = { videos: 0, images: 0, folders: 0, size: 0, hearts: 0, views: null as number | null }
+  // hearts, views and time watched count everything inside, subfolders
+  // included (like the size); views / time watched are null if the listing has none
+  const stats = {
+    videos: 0,
+    images: 0,
+    folders: 0,
+    size: 0,
+    hearts: 0,
+    views: null as number | null,
+    watchedMs: null as number | null,
+  }
   for (const e of entries.value) {
     stats.size += e.size ?? 0
     stats.hearts += e.kind === 'folder' ? (e.favorite_count ?? 0) : e.favorite ? 1 : 0
     if (e.plays != null) stats.views = (stats.views ?? 0) + e.plays
+    if (e.watched_ms != null) stats.watchedMs = (stats.watchedMs ?? 0) + e.watched_ms
     if (e.kind === 'video') stats.videos++
     else if (e.kind === 'image') stats.images++
     else if (e.kind === 'folder') stats.folders++
@@ -294,12 +363,16 @@ const { selected, show, close } = useLightbox()
 const lightboxEntries = computed(() => sortedEntries.value.filter(isMediaEntry))
 
 /**
- * The section shows (not in selection mode: picks belong to the grid), with a
- * placeholder while nothing here was played yet. Not in an empty folder: its
- * own message says enough
+ * The sections above the grid show ("Most viewed", "Most watch time",
+ * "Hearted": each once its list arrived, with a placeholder while it's empty;
+ * not in selection mode: picks belong to the grid). Not in an empty folder:
+ * its own message says enough
  */
 const showMostPlayed = computed(
-  () => mostPlayedLoaded.value && entries.value.length > 0 && !selecting.value,
+  () =>
+    (mostPlayedLoaded.value || mostWatchedLoaded.value || heartedLoaded.value) &&
+    entries.value.length > 0 &&
+    !selecting.value,
 )
 
 const settingsOpen = ref(false)
@@ -332,9 +405,7 @@ watch(selected, (entry) => {
   // dev mode: the banner stays (src/appMode.ts)
   if (!entry?.compressed_new || !recordsVideoData.value) return
   // every card of the file (grid, "Most played", "Hearted") loses it
-  const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
-    (e) => e.path === entry.path,
-  )
+  const copies = [entry, ...shownEntries()].filter((e) => e.path === entry.path)
   for (const e of copies) e.compressed_new = false
   markCompressedSeen(entry.path).catch((e: unknown) => {
     for (const c of copies) c.compressed_new = true
@@ -539,9 +610,7 @@ async function revealCard(path: string, afterNavigation = true): Promise<boolean
 async function onViewed(entry: Entry) {
   // dev mode: nothing is recorded (src/appMode.ts)
   if (!recordsVideoData.value) return
-  const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
-    (e) => e.path === entry.path,
-  )
+  const copies = [entry, ...shownEntries()].filter((e) => e.path === entry.path)
   const set = (viewed: number, plays: number) => {
     for (const e of copies) {
       e.last_viewed = viewed
@@ -561,13 +630,70 @@ async function onViewed(entry: Entry) {
   }
 }
 
+// ── Time watched ──
+// The viewer reports each bit of watching (a video's playback steps, a
+// photo's time on screen); they're added up here per file and sent every
+// WATCH_TIME_FLUSH_MS, when the viewer closes and when the page is hidden.
+// Its cards (grid, "Most played", "Hearted") show the new total once it's
+// sent; the folder cards follow when the folder loads again
+
+/** Time watched not sent yet, by path */
+const pendingWatch = new Map<string, number>()
+let watchFlushTimer: ReturnType<typeof setTimeout> | undefined
+
+function onWatched(entry: Entry, ms: number) {
+  // dev mode: nothing is recorded (src/appMode.ts)
+  if (!recordsVideoData.value || ms <= 0) return
+  pendingWatch.set(entry.path, (pendingWatch.get(entry.path) ?? 0) + ms)
+  watchFlushTimer ??= setTimeout(flushWatched, WATCH_TIME_FLUSH_MS)
+}
+
+function flushWatched() {
+  clearTimeout(watchFlushTimer)
+  watchFlushTimer = undefined
+  for (const [path, pending] of pendingWatch) {
+    pendingWatch.delete(path)
+    const ms = Math.min(WATCH_TIME_MAX_ADD_MS, Math.round(pending))
+    // under a millisecond: nothing worth sending
+    if (ms <= 0) continue
+    const copies = shownEntries().filter((e) => e.path === path)
+    const undo = () => {
+      for (const e of copies) e.watched_ms = Math.max(0, (e.watched_ms ?? 0) - ms)
+    }
+    for (const e of copies) e.watched_ms = (e.watched_ms ?? 0) + ms
+    addWatchTime(path, ms)
+      .then((total) => {
+        // null: the server didn't record it (switched to dev mode meanwhile)
+        if (total === null) return undo()
+        for (const e of copies) e.watched_ms = total
+        // its order and what's in it may have changed
+        void loadMostWatched()
+      })
+      .catch((e: unknown) => {
+        undo()
+        console.warn(e)
+      })
+  }
+}
+
+// closing the viewer, or hiding the page: what's left goes now. After the
+// viewer has reported the photo it was showing (its own watcher, same tick)
+watch(selected, (entry) => {
+  if (!entry) void nextTick(flushWatched)
+})
+
+function onPageHidden() {
+  // a task later: the viewer reports the photo it's showing in its own
+  // listener of this event, which runs after this one
+  if (document.visibilityState === 'hidden') setTimeout(flushWatched, 0)
+}
+document.addEventListener('visibilitychange', onPageHidden)
+
 async function toggleFavorite(entry: Entry, on: boolean) {
   // dev mode: hearts aren't changed (src/appMode.ts)
   if (!recordsVideoData.value) return
-  // the same file can have a card in the grid, "Most played" and "Hearted": all change
-  const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
-    (e) => e.path === entry.path,
-  )
+  // the same file can have a card in the grid and in each section: all change
+  const copies = [entry, ...shownEntries()].filter((e) => e.path === entry.path)
   for (const e of copies) e.favorite = on
   syncHeartedWith(entry, on)
   try {
@@ -672,6 +798,8 @@ onUnmounted(() => {
   stopCompressWatch()
   stopRevealHandler()
   stopOriginalFinder()
+  document.removeEventListener('visibilitychange', onPageHidden)
+  flushWatched()
 })
 </script>
 
@@ -709,25 +837,50 @@ onUnmounted(() => {
     <!-- the most played videos and photos of this folder and its subfolders -->
     <section v-if="showMostPlayed" class="most-played">
       <div class="most-played-inner">
-        <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
-        <p v-if="mostPlayed.length === 0" class="most-played-empty">
-          {{ MOST_PLAYED_EMPTY_TEXT }}
-        </p>
-        <div v-else class="grid">
-          <GalleryCard
-            v-for="entry in mostPlayed"
-            :key="mostPlayedKey(entry)"
-            :status-key="mostPlayedKey(entry)"
-            :entry="entry"
-            :selecting="false"
-            :selected="false"
-            link-only
-            views-only
-            @open="openFromMostPlayed"
-            @favorite="toggleFavorite"
-            @changed="refresh"
-          />
-        </div>
+        <template v-if="mostPlayedLoaded && settings.mostPlayedCount > 0">
+          <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
+          <p v-if="mostPlayed.length === 0" class="most-played-empty">
+            {{ MOST_PLAYED_EMPTY_TEXT }}
+          </p>
+          <div v-else class="grid">
+            <GalleryCard
+              v-for="entry in mostPlayed"
+              :key="mostPlayedKey(entry)"
+              :status-key="mostPlayedKey(entry)"
+              :entry="entry"
+              :selecting="false"
+              :selected="false"
+              link-only
+              views-only
+              @open="openFromMostPlayed"
+              @favorite="toggleFavorite"
+              @changed="refresh"
+            />
+          </div>
+        </template>
+
+        <!-- the longest watched videos and photos (or folders), like the above -->
+        <template v-if="mostWatchedLoaded && settings.mostWatchedCount > 0">
+          <h2 class="section-title">{{ MOST_WATCHED_TITLE }}</h2>
+          <p v-if="mostWatched.length === 0" class="most-played-empty">
+            {{ MOST_WATCHED_EMPTY_TEXT }}
+          </p>
+          <div v-else class="grid">
+            <GalleryCard
+              v-for="entry in mostWatched"
+              :key="mostWatchedKey(entry)"
+              :status-key="mostWatchedKey(entry)"
+              :entry="entry"
+              :selecting="false"
+              :selected="false"
+              link-only
+              views-only
+              @open="openFromMostPlayed"
+              @favorite="toggleFavorite"
+              @changed="refresh"
+            />
+          </div>
+        </template>
 
         <!-- random hearted videos and photos of this folder and its subfolders -->
         <template v-if="heartedLoaded && settings.heartedCount > 0">
@@ -793,6 +946,7 @@ onUnmounted(() => {
       @close="close"
       @select="show"
       @viewed="onViewed"
+      @watched="onWatched"
     />
   </div>
 </template>

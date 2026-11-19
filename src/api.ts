@@ -626,6 +626,27 @@ export async function markViewed(
   )
 }
 
+/**
+ * A video was watched / photo shown in the viewer for `ms` more: added to its
+ * time watched, on every device. Returns the new total (null in dev mode:
+ * nothing was recorded, src/appMode.ts). `keepalive`, so it's still sent
+ * while the page goes away.
+ */
+export async function addWatchTime(path: string, ms: number): Promise<number | null> {
+  const res = await fetch(`${API.watchTime}?path=${encodeURIComponent(path)}&ms=${ms}`, {
+    method: 'POST',
+    keepalive: true,
+  })
+  const data = (await res.json().catch(() => ({}))) as { watched_ms?: number | null; error?: string }
+  if (!res.ok) throw new Error(data.error ?? `Saving the time watched failed (${res.status})`)
+  return data.watched_ms ?? null
+}
+
+/** Sets how long a video / photo was watched (ms), on every device. Refused in dev mode */
+export async function setWatchTime(path: string, ms: number): Promise<void> {
+  await post(`${API.setWatchTime}?path=${encodeURIComponent(path)}&ms=${ms}`)
+}
+
 /** Sets how many times a video / photo was viewed, on every device */
 export async function setPlays(path: string, count: number): Promise<void> {
   await post(`${API.setPlays}?path=${encodeURIComponent(path)}&count=${count}`)
@@ -634,15 +655,17 @@ export async function setPlays(path: string, count: number): Promise<void> {
 /**
  * Most played first, shared by every device: the `limit` videos and photos
  * inside a folder (subfolders included), or (`kind` 'folders') the `limit`
- * folders directly inside it, by the plays of everything in them added up
+ * folders directly inside it, by the plays of everything in them added up.
+ * `by` 'time': the longest watched first instead (time watched)
  */
 export async function fetchMostPlayed(
   path: string,
   limit: number,
   kind: 'media' | 'folders' = 'media',
+  by: 'plays' | 'time' = 'plays',
 ): Promise<Entry[]> {
   const res = await fetch(
-    `${API.mostPlayed}?path=${encodeURIComponent(path)}&limit=${limit}&kind=${kind}`,
+    `${API.mostPlayed}?path=${encodeURIComponent(path)}&limit=${limit}&kind=${kind}&by=${by}`,
   )
   if (!res.ok) throw new Error(`Loading the most played failed (${res.status})`)
   return (await res.json()) as Entry[]

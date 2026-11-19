@@ -13,6 +13,7 @@ import { lastViewed } from './views.ts'
 import { isMpegts, videoInfo } from './media/probe.ts'
 import { resolveDir } from './paths.ts'
 import { folderPlays, playCount } from './plays.ts'
+import { folderWatchTime, watchTime } from './watchTime.ts'
 import { Semaphore } from './semaphore.ts'
 import { serverSettings } from './settings.ts'
 import type { Entry, EntryKind } from './types.ts'
@@ -106,8 +107,8 @@ async function hasOwnMedia(dir: string): Promise<boolean> {
 }
 
 /**
- * Options of a listing. `withVideoData`: include plays and "last viewed"
- * (false for a device in dev mode, server/appMode.ts: both come as null)
+ * Options of a listing. `withVideoData`: include plays, time watched and
+ * "last viewed" (false: they come as null)
  */
 export interface ListOptions {
   withVideoData: boolean
@@ -151,6 +152,13 @@ async function toEntry(
         ? playCount(entryPath)
         : kind === 'folder'
           ? folderPlays(entryPath)
+          : null,
+    watched_ms: !withVideoData
+      ? null
+      : kind === 'video' || kind === 'image'
+        ? watchTime(entryPath)
+        : kind === 'folder'
+          ? folderWatchTime(entryPath)
           : null,
   }
 

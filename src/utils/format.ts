@@ -98,6 +98,21 @@ export function formatDateAgo(ms: number, now: number = Date.now()): string {
   return `${formatDate(ms)} (${formatAgo(ms, now)})`
 }
 
+/**
+ * Time watched, short: "45s", "12m", "3h 12m", "2d 4h" (the smaller unit
+ * left out when it's 0: "3h", "2d")
+ */
+export function formatWatched(ms: number): string {
+  const seconds = Math.floor(Math.max(0, ms) / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`
+  const days = Math.floor(hours / 24)
+  return hours % 24 ? `${days}d ${hours % 24}h` : `${days}d`
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`

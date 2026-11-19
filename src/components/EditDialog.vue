@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { fileUrl, queueEdit, renameEntry, setPlays } from '@/api'
-import { recordsVideoData } from '@/appMode'
+import { fileUrl, queueEdit, renameEntry } from '@/api'
 import { pulseCompress } from '@/composables/useCompressQueue'
 import { PROMO_OUTROS, type PromoOutro } from '@/constants'
 import type { Entry } from '@/types'
@@ -10,8 +9,8 @@ import { formatSize } from '@/utils/format'
 
 /**
  * Edits a video or photo:
- * - its name and its views (how many times it was played / shown, on every
- *   device): changed on the file itself
+ * - its name: changed on the file itself (its views and time watched are in
+ *   the metadata dialog, MetadataDialog.vue)
  * - cut off the video's start and/or end (yellow handles, like Photos on the
  *   iPhone) and crop the edges of either (the white frame): added to the
  *   server's compress queue, which saves the copy next to it in the
@@ -22,7 +21,7 @@ import { formatSize } from '@/utils/format'
  * Save does them in that order, so the copy is named after the new name.
  */
 const props = defineProps<{ entry: Entry }>()
-/** `changed`: the name or views were saved, so the listing should be reloaded */
+/** `changed`: the name was saved, so the listing should be reloaded */
 const emit = defineEmits<{ close: []; changed: [] }>()
 
 const isVideo = props.entry.kind === 'video'
@@ -33,15 +32,13 @@ const pct = (f: number) => `${f * 100}%`
 
 const saving = ref(false)
 
-// ── Name and views (changed on the file itself) ──
+// ── Name (changed on the file itself) ──
 
 /** Where the file is and what it's called now (they change once a rename is saved) */
 let savedPath = props.entry.path
 const savedName = ref(props.entry.name)
-const savedViews = ref(props.entry.plays ?? 0)
 
 const newName = ref(props.entry.name)
-const views = ref<number | ''>(props.entry.plays ?? 0)
 
 /** Caught here so it shows while typing; the server checks again */
 const nameProblem = computed(() => {
@@ -50,17 +47,7 @@ const nameProblem = computed(() => {
   if (/[/\\]/.test(n)) return "A name can't contain / or \\"
   return null
 })
-const viewsProblem = computed(() =>
-  typeof views.value === 'number' && Number.isInteger(views.value) && views.value >= 0
-    ? null
-    : 'Views must be a whole number, 0 or more',
-)
 const renamed = computed(() => newName.value.trim() !== savedName.value)
-/** Dev mode: never (the server refuses it, src/appMode.ts) */
-const viewsChanged = computed(
-  () =>
-    recordsVideoData.value && typeof views.value === 'number' && views.value !== savedViews.value,
-)
 
 // ── Crop: fractions (0–1) of the picture as shown ──
 
@@ -268,10 +255,8 @@ const cropped = computed(() => crop.x > 0.001 || crop.y > 0.001 || crop.w < 0.99
 const trimmed = computed(() => isVideo && (trim.start > 0.05 || trim.end < duration.value - 0.05))
 /** A copy is made (trim / crop) */
 const makesCopy = computed(() => cropped.value || trimmed.value)
-const hasChanges = computed(() => makesCopy.value || renamed.value || viewsChanged.value)
-const canSave = computed(
-  () => hasChanges.value && !nameProblem.value && !viewsProblem.value && !saving.value,
-)
+const hasChanges = computed(() => makesCopy.value || renamed.value)
+const canSave = computed(() => hasChanges.value && !nameProblem.value && !saving.value)
 
 const error = ref('')
 
@@ -288,14 +273,13 @@ function reset() {
   trim.start = 0
   trim.end = duration.value
   newName.value = savedName.value
-  views.value = savedViews.value
 }
 
-/** The name or views were saved on the server: the folder is listed again when the dialog closes */
+/** The name was saved on the server: the folder is listed again when the dialog closes */
 let anythingSaved = false
 
 /**
- * Renames it, sets its views, then adds the trimmed / cropped copy (named
+ * Renames it, then adds the trimmed / cropped copy (named
  * after the new name) to the queue, as far as each changed, and closes. A
  * step that fails stops there: the ones before stay saved, and Save tries the
  * rest again. The copy shows up in the folder once the queue has made it
@@ -310,11 +294,6 @@ async function save() {
     if (renamed.value) {
       savedPath = await renameEntry(savedPath, newName.value.trim())
       savedName.value = newName.value.trim()
-      anythingSaved = true
-    }
-    if (viewsChanged.value && typeof views.value === 'number') {
-      await setPlays(savedPath, views.value)
-      savedViews.value = views.value
       anythingSaved = true
     }
     if (makesCopy.value) {
@@ -332,7 +311,7 @@ async function save() {
   }
 }
 
-/** Closes; if the name or views were saved, the folder is listed again */
+/** Closes; if the name was saved, the folder is listed again */
 function close() {
   if (anythingSaved) emit('changed')
   emit('close')
@@ -355,7 +334,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
     :locked="saving"
     @close="close"
   >
-    <!-- the file itself: its name and views -->
+    <!-- the file itself: its name -->
     <div class="info">
       <label class="field name-field">
         <span class="field-label">Name</span>
@@ -370,24 +349,8 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           @keydown.enter.prevent="save"
         />
       </label>
-      <!-- dev mode: shown, but can't be changed (src/appMode.ts) -->
-      <label class="field views-field">
-        <span class="field-label">Views</span>
-        <input
-          v-model.number="views"
-          class="field-input"
-          type="number"
-          min="0"
-          step="1"
-          inputmode="numeric"
-          enterkeyhint="done"
-          :disabled="saving || !recordsVideoData"
-          @keydown.enter.prevent="save"
-        />
-      </label>
     </div>
     <p v-if="renamed && nameProblem" class="error">{{ nameProblem }}</p>
-    <p v-if="viewsProblem" class="error">{{ viewsProblem }}</p>
 
     <div class="stage">
       <div ref="frame" class="frame">
@@ -518,14 +481,14 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
       <span class="spacer" />
       <button class="button" :disabled="saving" @click="close">Cancel</button>
       <button class="button primary" :disabled="!canSave" @click="save">
-        {{ saving ? 'Saving…' : makesCopy && !renamed && !viewsChanged ? 'Save copy' : 'Save' }}
+        {{ saving ? 'Saving…' : makesCopy && !renamed ? 'Save copy' : 'Save' }}
       </button>
     </div>
   </ModalDialog>
 </template>
 
 <style scoped>
-/* ── Name and views ── */
+/* ── Name ── */
 .info {
   display: flex;
   gap: 0.6rem;
@@ -540,11 +503,6 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 .name-field {
   flex: 1;
   min-width: 0;
-}
-
-.views-field {
-  flex: none;
-  width: 7rem;
 }
 
 .field-label {

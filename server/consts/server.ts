@@ -90,6 +90,15 @@ export const VIEWS_FILE = path.join(DATA_DIR, 'views.json')
  */
 export const PLAYS_FILE = path.join(DATA_DIR, 'plays.json')
 /**
+ * How long each video was watched in the viewer, or each photo shown there,
+ * all openings added up (server/watchTime.ts): path → ms. Shared by every device.
+ */
+export const WATCH_TIME_FILE = path.join(DATA_DIR, 'watch-time.json')
+/** Most time watched one report may add (ms); more is refused */
+export const WATCH_TIME_MAX_ADD_MS = 6 * 60 * 60 * 1000
+/** Highest time watched that can be set by hand (ms): 100 000 hours */
+export const WATCH_TIME_MAX_SET_MS = 100_000 * 60 * 60 * 1000
+/**
  * The cache version shared by every device (server/cacheVersion.ts): a
  * number that goes up each time a cache is cleared
  */

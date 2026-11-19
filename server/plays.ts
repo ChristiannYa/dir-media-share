@@ -65,7 +65,7 @@ export function mostPlayedIn(folderRel: string): Array<[string, number]> {
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
 }
 
-/** Sets the count of the video / photo at `rel` by hand (the edit dialog); 0 forgets it */
+/** Sets the count of the video / photo at `rel` by hand (the metadata dialog); 0 forgets it */
 export async function setPlayCount(rel: string, count: number): Promise<void> {
   if (count === playCount(rel)) return
   if (count > 0) plays.set(rel, count)

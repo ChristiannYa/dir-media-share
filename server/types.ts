@@ -59,6 +59,12 @@ export interface Entry {
    * (subfolders included). Null for other files
    */
   plays: number | null
+  /**
+   * Videos and photos: how long it was watched / shown in the viewer, all
+   * openings added up (ms; server/watchTime.ts). Folders: those of everything
+   * inside them added up (subfolders included). Null for other files
+   */
+  watched_ms: number | null
 }
 
 /** Layout of a storyboard grid. Tile `i` shows the video at `i * interval`. */

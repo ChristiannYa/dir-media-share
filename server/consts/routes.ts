@@ -76,7 +76,8 @@ export const ROUTE_FAVORITE = '/api/favorite'
 /**
  * The most played videos and photos inside a folder (subfolders included), or
  * (kind=folders) its most played subfolders by their plays added up, most
- * played first, as listing entries (server/plays.ts): GET ?path=&limit=&kind=media|folders
+ * played first, as listing entries (server/plays.ts). by=time: by time watched
+ * instead (server/watchTime.ts): GET ?path=&limit=&kind=media|folders&by=plays|time
  */
 export const ROUTE_MOST_PLAYED = '/api/most-played'
 /**
@@ -84,8 +85,15 @@ export const ROUTE_MOST_PLAYED = '/api/most-played'
  * random order, as listing entries (server/favorites.ts): GET ?path=&limit=
  */
 export const ROUTE_HEARTED = '/api/hearted'
-/** Sets how many times a video / photo was viewed (the edit dialog): POST ?path=&count= */
+/** Sets how many times a video / photo was viewed (the metadata dialog): POST ?path=&count= */
 export const ROUTE_SET_PLAYS = '/api/plays'
+/**
+ * A video was watched / photo shown in the viewer for a while: adds that time
+ * to its time watched (server/watchTime.ts): POST ?path=&ms=
+ */
+export const ROUTE_WATCH_TIME = '/api/watch-time'
+/** Sets how long a video / photo was watched (the metadata dialog): POST ?path=&ms= */
+export const ROUTE_SET_WATCH_TIME = '/api/watch-time/set'
 /** A video was played / photo shown in the viewer: it and its folders get "last viewed" = now (server/views.ts), and its play count goes up: POST ?path= */
 export const ROUTE_VIEWED = '/api/viewed'
 /**

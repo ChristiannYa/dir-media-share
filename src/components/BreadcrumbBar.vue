@@ -10,8 +10,8 @@ import { compressPulse, compressRequest } from '@/composables/useCompressQueue'
 import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
-import { ICON_EYE, ICON_HEART } from '@/icons'
-import { formatSize } from '@/utils/format'
+import { ICON_CLOCK, ICON_EYE, ICON_HEART } from '@/icons'
+import { formatSize, formatWatched } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
 const props = defineProps<{
@@ -27,6 +27,8 @@ const props = defineProps<{
     hearts: number
     /** total views of everything inside; null where they aren't recorded */
     views: number | null
+    /** total time watched of everything inside (ms); null where it isn't known */
+    watchedMs: number | null
   }
   /** The folder's first letters and the one you're at, for the fourth row (null: the page doesn't scroll) */
   alphabet: { letters: string[]; current: string } | null
@@ -446,6 +448,14 @@ onUnmounted(() => clearTimeout(settleTimer))
       >
         <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
         {{ stats.views }}
+      </span>
+      <span
+        v-if="holdsMedia && stats.watchedMs"
+        class="stat"
+        title="Total time watched, subfolders included"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+        {{ formatWatched(stats.watchedMs) }}
       </span>
       <span v-if="stats.size" class="stat" title="Total size, subfolders included">
         <!-- hard drive -->
