@@ -8,6 +8,13 @@
 // What was done to each (edited, compressed) is kept with it: a file that
 // replaced its original has the original's name, so its name can't tell.
 // Older saves have paths only: the client tells those from their names.
+//
+// Kept on globalThis: Vite reloads server files after an edit
+// (server/vitePlugin.ts), but a compress job already running keeps calling
+// the version of this file it started with. With a list per version, that
+// job's copy was marked in an old list (the gallery, using the new one, didn't
+// know it), and any save from an old list wrote back copies already opened
+// in the new one, so their badges came back. One list for every version.
 
 import { readFileSync } from 'node:fs'
 import { mkdir, rename, writeFile } from 'node:fs/promises'
@@ -40,23 +47,33 @@ function load(): Map<string, NewKind> {
   return map
 }
 
-const unseen = load()
+interface NewStore {
+  /** The copies not opened yet, and what was done to each */
+  unseen: Map<string, NewKind>
+  /** Saves run one after another, so a quick second change can't be overwritten by the first */
+  saving: Promise<void>
+}
 
-/** Saves run one after another, so a quick second change can't be overwritten by the first */
-let saving: Promise<void> = Promise.resolve()
+const KEY = Symbol.for('med.compressedNew')
+const store = globalThis as typeof globalThis & { [KEY]?: NewStore }
+/** Read from the file once per process; every later version of this file uses the same */
+const shared: NewStore = (store[KEY] ??= { unseen: load(), saving: Promise.resolve() })
+const unseen = shared.unseen
 
 function save(): Promise<void> {
   const list = [...unseen]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([rel, kind]) => (kind ? { path: rel, ...kind } : rel))
-  saving = saving.then(async () => {
-    // write a temp file, then rename: a crash mid-write can't leave half a file
-    await mkdir(path.dirname(COMPRESSED_NEW_FILE), { recursive: true })
-    const tmp = `${COMPRESSED_NEW_FILE}.tmp`
-    await writeFile(tmp, JSON.stringify(list, null, 2) + '\n')
-    await rename(tmp, COMPRESSED_NEW_FILE)
-  })
-  return saving
+  shared.saving = shared.saving
+    .catch(() => {})
+    .then(async () => {
+      // write a temp file, then rename: a crash mid-write can't leave half a file
+      await mkdir(path.dirname(COMPRESSED_NEW_FILE), { recursive: true })
+      const tmp = `${COMPRESSED_NEW_FILE}.tmp`
+      await writeFile(tmp, JSON.stringify(list, null, 2) + '\n')
+      await rename(tmp, COMPRESSED_NEW_FILE)
+    })
+  return shared.saving
 }
 
 /** True if `rel` is a compressed / edited copy that wasn't opened yet */
