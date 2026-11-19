@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { cancelCompress, clearCompressJobs, discardCompressJob } from '@/api'
+import { cancelCompress, clearCompressJobs } from '@/api'
 import { compressPercent, useCompressQueue } from '@/composables/useCompressQueue'
 import { revealInGallery } from '@/composables/useGallery'
 import type { CompressJob, CompressJobState } from '@/types'
@@ -19,8 +19,8 @@ import { haptic } from '@/utils/haptics'
  * settings used ("clip [x264 crf20 slow].mp4"); the originals are never
  * touched. The edit dialog's trimmed / cropped copies ("clip_edited.mp4") are
  * in the same queue, marked "edit". Per file: stop it (waiting or
- * compressing), or delete the copy it saved (Discard). Per folder and for
- * everything: stop the rest, clear the ended ones from the list.
+ * compressing). Per folder and for everything: stop the rest, clear the ended
+ * ones from the list. A copy is deleted in the gallery, like any file.
  */
 const emit = defineEmits<{ close: [] }>()
 
@@ -58,7 +58,6 @@ async function act(key: string, action: () => Promise<void>) {
 }
 
 const stopJob = (job: CompressJob) => act(job.id, () => cancelCompress({ id: job.id }))
-const discardJob = (job: CompressJob) => act(job.id, () => discardCompressJob(job.id))
 const stopFolder = (folder: string) => act(`stop:${folder}`, () => cancelCompress({ folder }))
 const clearFolder = (folder: string) => act(`clear:${folder}`, () => clearCompressJobs(folder))
 const stopAll = () => act('stop-all', () => cancelCompress('all'))
@@ -169,6 +168,15 @@ function folderSummary(jobs: CompressJob[]): string {
  */
 function editThenCompress(job: CompressJob): boolean {
   return job.action === 'edit' && job.compressAfter && isActive(job)
+}
+
+/**
+ * A compressed copy saved (a compression, or an edit compressed too): its
+ * sizes (the original's → the copy's) are on the line under its name, where
+ * the note would be: the note only says the same as the name already does
+ */
+function sizesBelow(job: CompressJob): boolean {
+  return job.state === 'done' && job.after !== null
 }
 
 /** What the row says while an edit + compress job runs: which step, and what comes next */
@@ -333,12 +341,10 @@ function progressText(job: CompressJob): string {
                 <span class="file-name">{{ job.name }}</span>
                 <span class="file-size">
                   <template v-if="isActive(job)">{{ progressText(job) }}</template>
-                  <!-- compressed (an edit too, when it was compressed after): the sizes -->
-                  <template v-else-if="job.state === 'done' && job.after !== null">
-                    {{ formatSize(job.before ?? 0) }} → {{ formatSize(job.after ?? 0) }}
-                    <span class="saving">−{{ savingOf(job) }}%</span>
+                  <!-- a saved copy's sizes are on the line below; here, the original's size otherwise -->
+                  <template v-else-if="job.before && !sizesBelow(job)">
+                    {{ formatSize(job.before) }}
                   </template>
-                  <template v-else-if="job.before">{{ formatSize(job.before) }}</template>
                 </span>
                 <button
                   v-if="isActive(job)"
@@ -351,16 +357,6 @@ function progressText(job: CompressJob): string {
                 >
                   ✕
                 </button>
-                <button
-                  v-else-if="job.state === 'done'"
-                  type="button"
-                  class="link-button danger"
-                  :disabled="busy.has(job.id)"
-                  title="Delete the copy for good; the original stays"
-                  @click.stop="discardJob(job)"
-                >
-                  Discard
-                </button>
               </div>
               <div
                 v-if="job.state === 'compressing' && job.kind === 'video'"
@@ -368,7 +364,12 @@ function progressText(job: CompressJob): string {
               >
                 <div class="fill" :style="{ width: `${job.fraction * 100}%` }" />
               </div>
-              <p v-if="job.note || phaseNote(job)" class="file-note">
+              <!-- a compressed copy saved: the sizes take the place of the note -->
+              <p v-if="sizesBelow(job)" class="file-note file-sizes">
+                {{ formatSize(job.before ?? 0) }} → {{ formatSize(job.after ?? 0) }}
+                <span class="saving">−{{ savingOf(job) }}%</span>
+              </p>
+              <p v-else-if="job.note || phaseNote(job)" class="file-note">
                 {{ job.note || phaseNote(job) }}
               </p>
             </li>
@@ -693,6 +694,10 @@ function progressText(job: CompressJob): string {
 .saving {
   margin-left: 2px;
   color: #6fdc8c;
+}
+
+.file-sizes {
+  font-variant-numeric: tabular-nums;
 }
 
 /* under the name: past the state icon (1.2rem) and the row's gap */
