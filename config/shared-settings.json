@@ -2,6 +2,7 @@
   "sortBy": "size",
   "mostPlayedCount": 6,
   "viewAfterSeconds": 5,
+  "previewSpeed": 1.35,
   "loopVideos": true,
   "controlsHideDelayMs": 2000,
   "folderRadius": 0,

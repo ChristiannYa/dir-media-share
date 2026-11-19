@@ -62,7 +62,7 @@ export interface CompressJob {
   /**
    * Edits only: the edited copy is compressed too (the edit's progress is the
    * first half, the compression's the second); `before` / `after` are then the
-   * edited copy's size and the compressed one's
+   * original's size and the compressed copy's
    */
   compressAfter: boolean
   /** The original, inside the shared folder */

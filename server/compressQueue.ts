@@ -33,7 +33,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdir, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { markCompressedNew, setCompressedSeen } from './compressedNew.ts'
 import { COMPRESS_QUEUE_FILE } from './consts/server.ts'
@@ -77,8 +77,8 @@ export interface CompressJob {
   edit: VideoEdit | null
   /**
    * Edits only: the edited copy is compressed too, right after, in the same
-   * job; `before` / `after` are then the edited copy's size and the compressed
-   * one's, and only the compressed one is kept
+   * job; `before` / `after` are then the original's size and the compressed
+   * copy's, and only the compressed one is kept
    */
   compressAfter: boolean
   /** The original, inside the shared folder (as the listing shows it) */
@@ -492,13 +492,20 @@ async function run(job: CompressJob, file: string) {
         halfOf(hooks, 0.5),
       )
       if (job.endedAt !== null || state.shuttingDown) return
+      // "before" is the original's size, not the edited copy's (which was only a
+      // step): the saving shown is what the trim / crop and the compression saved
+      // together. The original gone meanwhile: the edited copy's, as the best known
+      const originalSize = await stat(file).then(
+        (s) => s.size,
+        () => result.before,
+      )
       if (result.compressed && result.name) {
         // only the compressed one is kept: the edited copy was a step towards it
         await dropEditedStep(job)
         end(job, {
           state: 'done',
           fraction: 1,
-          before: result.before,
+          before: originalSize,
           after: result.after,
           copyPath: await saved(result.name),
           copyName: result.name,
@@ -510,7 +517,7 @@ async function run(job: CompressJob, file: string) {
         end(job, {
           state: 'done',
           fraction: 1,
-          before: result.before,
+          before: originalSize,
           copyPath: await saved(name),
           copyName: name,
           note: `Saved as ${name}, not compressed: ${result.note ?? 'it would hardly get smaller'}`,

@@ -111,8 +111,9 @@ const etaText = computed(() => {
 })
 
 /**
- * Size of the files that got a compressed copy, and of those copies (an edit
- * compressed too: its edited copy's size; edits alone have no `after`)
+ * Size of the files that got a compressed copy, and of those copies: the
+ * popup's top Before → After, everything in the list added up (an edit
+ * compressed too counts its original's size; edits alone have no `after`)
  */
 function sizes(jobs: CompressJob[]) {
   let before = 0
@@ -622,10 +623,12 @@ function progressText(job: CompressJob): string {
   outline-offset: 1px;
 }
 
+/* the parts of a row (state, tag, name, sizes, saving) are each colored their
+   own way, so they need next to no space between them */
 .file-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 2px;
   font-size: 0.8rem;
 }
 
@@ -688,12 +691,13 @@ function progressText(job: CompressJob): string {
 }
 
 .saving {
-  margin-left: 0.3rem;
+  margin-left: 2px;
   color: #6fdc8c;
 }
 
+/* under the name: past the state icon (1.2rem) and the row's gap */
 .file-note {
-  margin: 0.25rem 0 0 1.8rem;
+  margin: 0.25rem 0 0 calc(1.2rem + 2px);
   color: #999;
   font-size: 0.72rem;
   overflow-wrap: anywhere;
