@@ -5,6 +5,7 @@ import { fileUrl, queueEdit, renameEntry, setPlays } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { pulseCompress } from '@/composables/useCompressQueue'
 import type { Entry } from '@/types'
+import { formatSize } from '@/utils/format'
 
 /**
  * Edits a video or photo:
@@ -440,7 +441,11 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
         <svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" /></svg>
       </span>
       <span class="check-text">
-        Compress it too
+        <span class="check-title">
+          Compress it too
+          <!-- the size of the file being edited, as it is now -->
+          <span v-if="entry.size" class="check-size">{{ formatSize(entry.size) }}</span>
+        </span>
         <small>Once the copy is made, like Compress does; only the compressed one is kept</small>
       </span>
     </label>
@@ -779,12 +784,28 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 }
 
 .check-text {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
   color: #ddd;
   font-size: 0.85rem;
   line-height: 1.25rem;
+}
+
+.check-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+/* the media's size: the same muted tone as the sizes elsewhere */
+.check-size {
+  color: #888;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .check-text small {
