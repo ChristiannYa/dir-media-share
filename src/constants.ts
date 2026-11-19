@@ -172,6 +172,16 @@ export const API = {
   compressJobs: '/api/compress/jobs',
   /** Adds files to the compress queue: POST JSON { files: [{ path, duration? }] } */
   compressQueue: '/api/compress/queue',
+  /** What was deleted from the shared folder, the last first: GET → { items } */
+  trashList: '/api/trash',
+  /** A trashed photo / video itself, to show it: GET ?id= */
+  trashItem: '/api/trash/item',
+  /** The still of a trashed photo / video: GET ?id= */
+  trashThumb: '/api/trash/thumb',
+  /** Puts a trashed item back where it was deleted from: POST ?id= → { path } */
+  trashRestore: '/api/trash/restore',
+  /** Deletes a trashed item for good: POST ?id= */
+  trashDelete: '/api/trash/delete',
   /** Adds a trimmed / cropped "<name>_edited.<ext>" copy to the queue (compressed too with compress: true): POST JSON { path, edit, compress? } → { job } */
   compressEdit: '/api/compress/edit',
   /** Stops compress jobs, waiting or running: POST ?id= | ?folder= | ?all=1 */

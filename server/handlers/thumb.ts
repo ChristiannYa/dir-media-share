@@ -11,9 +11,10 @@ import { mediaError } from './mediaError.ts'
 
 /**
  * Answers the still JPEG of `file` (a video: from its middle; an image: the
- * image itself, scaled down), made once and kept in THUMB_DIR
+ * image itself, scaled down), made once and kept in THUMB_DIR. Also for the
+ * trash's items (handlers/trash.ts)
  */
-async function sendThumb(res: ServerResponse, file: string, label: string) {
+export async function sendThumb(res: ServerResponse, file: string, label: string) {
   const out = await cacheFile(THUMB_DIR, await cacheName(file, thumbnail.cacheSettings()), 'jpg')
   try {
     await thumbnail.ensure(file, out)

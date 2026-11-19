@@ -54,7 +54,12 @@ import {
   ROUTE_STORYBOARD,
   ROUTE_STORYBOARDS,
   ROUTE_THUMB,
+  ROUTE_TRASH_DELETE,
   ROUTE_TRASH_FILE,
+  ROUTE_TRASH_ITEM,
+  ROUTE_TRASH_LIST,
+  ROUTE_TRASH_RESTORE,
+  ROUTE_TRASH_THUMB,
   ROUTE_UPLOAD_FILE,
   ROUTE_VIEWED,
   ROUTE_VIEW_LOG,
@@ -75,6 +80,13 @@ import {
   uploadAppModeImage,
 } from './handlers/appModeImage.ts'
 import { browse } from './handlers/browse.ts'
+import {
+  deleteTrashHandler,
+  listTrashHandler,
+  restoreTrashHandler,
+  trashItemFile,
+  trashItemThumb,
+} from './handlers/trash.ts'
 import { clearCache } from './handlers/clearCache.ts'
 import {
   cancelCompressJobs,
@@ -147,6 +159,11 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_CLEAR_CACHE]: { POST: clearCache },
   [ROUTE_FOLDERS]: { GET: folders },
   [ROUTE_TRASH_FILE]: { POST: trashFile },
+  [ROUTE_TRASH_LIST]: { GET: listTrashHandler },
+  [ROUTE_TRASH_ITEM]: { GET: trashItemFile },
+  [ROUTE_TRASH_THUMB]: { GET: trashItemThumb },
+  [ROUTE_TRASH_RESTORE]: { POST: restoreTrashHandler },
+  [ROUTE_TRASH_DELETE]: { POST: deleteTrashHandler },
   [ROUTE_MOVE_FILE]: { POST: moveFile },
   [ROUTE_UPLOAD_FILE]: { POST: uploadFile },
   [ROUTE_CREATE_FOLDER]: { POST: createFolder },

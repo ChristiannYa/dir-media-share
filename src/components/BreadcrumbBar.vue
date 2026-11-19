@@ -5,12 +5,13 @@ import AppModeImage from '@/components/AppModeImage.vue'
 import CompressButton from '@/components/CompressButton.vue'
 import FolderMenu from '@/components/FolderMenu.vue'
 import LockTimer from '@/components/LockTimer.vue'
+import TrashDialog from '@/components/TrashDialog.vue'
 import { backgroundPaused } from '@/composables/useBackgroundPause'
 import { compressPulse, compressRequest } from '@/composables/useCompressQueue'
 import { popupOpen } from '@/composables/usePopupOpen'
 import { useScrollHide } from '@/composables/useScrollHide'
 import type { Crumb } from '@/types'
-import { ICON_CLOCK, ICON_EYE, ICON_HEART } from '@/icons'
+import { ICON_CLOCK, ICON_EYE, ICON_HEART, ICON_TRASH } from '@/icons'
 import { formatSize, formatWatched } from '@/utils/format'
 import { haptic } from '@/utils/haptics'
 
@@ -48,6 +49,9 @@ const emit = defineEmits<{
    */
   letter: [letter: string, smooth: boolean]
 }>()
+
+/** The trash popup (TrashDialog.vue): what was deleted, to restore or delete for good */
+const trashOpen = ref(false)
 
 /** Hearts and views aren't shown in .lock itself or the folders directly in it (.bin, src): only deeper (.bin/cinema…) */
 const holdsMedia = computed(() => props.crumbs.length >= 2)
@@ -376,6 +380,16 @@ onUnmounted(() => clearTimeout(settleTimer))
       <AppModeImage editable />
       <!-- the compress queue's progress: only while it lists anything; a tap opens its popup -->
       <CompressButton />
+      <!-- the trash: what was deleted from the shared folder, to restore or delete for good -->
+      <button
+        class="bar-btn trash-btn"
+        aria-label="Trash"
+        title="Trash"
+        @click="trashOpen = true"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_TRASH" /></svg>
+      </button>
+      <TrashDialog v-if="trashOpen" @close="trashOpen = false" @changed="emit('changed')" />
       <button class="bar-btn settings-btn" aria-label="Settings" @click="emit('settings')">
         <!-- gear -->
         <svg viewBox="0 0 24 24" aria-hidden="true" class="filled">
@@ -746,6 +760,18 @@ onUnmounted(() => clearTimeout(settleTimer))
 
 .settings-btn:hover {
   color: #f0ecff;
+}
+
+/* the trash: a filled icon like the gear's, a little smaller */
+.trash-btn:hover {
+  color: #f0ecff;
+}
+
+.trash-btn svg {
+  width: 1.05rem;
+  height: 1.05rem;
+  fill: currentColor;
+  stroke: none;
 }
 
 .settings-btn svg.filled {

@@ -251,6 +251,58 @@ async function readJob(
   throw new Error('Connection lost')
 }
 
+// ── The trash ──
+// What was deleted from the shared folder, in the desktop's trash
+// (server/trash.ts): browsed in TrashDialog.vue, put back or deleted for good
+
+/** An item of the trash that came from the shared folder */
+export interface TrashItem {
+  /** Its name in the trash: what the other calls take */
+  id: string
+  /** Its name where it was */
+  name: string
+  /** Where it was, inside the shared folder */
+  path: string
+  /** The folder it was in ('' = the shared folder itself) */
+  folder: string
+  kind: 'video' | 'image' | 'file' | 'folder'
+  size: number
+  /** When it was deleted (ms since 1970); null if unknown */
+  deletedAt: number | null
+}
+
+/** Everything deleted from the shared folder, the last first */
+export async function fetchTrash(): Promise<TrashItem[]> {
+  const res = await fetch(API.trashList)
+  if (!res.ok) throw new Error(`Loading the trash failed (${res.status})`)
+  return ((await res.json()) as { items: TrashItem[] }).items
+}
+
+/** The trashed photo / video itself, to show it */
+export function trashItemUrl(id: string): string {
+  return `${API.trashItem}?id=${encodeURIComponent(id)}`
+}
+
+/**
+ * The still of a trashed photo / video (a video's from its middle), made by
+ * the server like the gallery's. When it was deleted is in the URL: a trash
+ * name can be used again by a later deletion, which mustn't get this one's
+ * still from the browser's cache
+ */
+export function trashThumbUrl(item: TrashItem): string {
+  return `${API.trashThumb}?id=${encodeURIComponent(item.id)}&d=${item.deletedAt ?? 0}`
+}
+
+/** Puts it back where it was deleted from ("name (2)" if that's taken); answers its path now */
+export async function restoreTrashItem(id: string): Promise<string> {
+  return (await post<{ path: string }>(`${API.trashRestore}?id=${encodeURIComponent(id)}`)).path
+}
+
+/** Deletes it for good */
+export async function deleteTrashItem(id: string): Promise<void> {
+  await post(`${API.trashDelete}?id=${encodeURIComponent(id)}`)
+}
+
 /** Moves a file to the computer's trash (restorable from the file manager) */
 export async function trashFile(path: string): Promise<void> {
   await post(`${API.trashFile}?path=${encodeURIComponent(path)}`)

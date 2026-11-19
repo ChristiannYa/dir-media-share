@@ -32,6 +32,16 @@ export const ROUTE_CLEAR_CACHE = '/api/cache/clear'
 export const ROUTE_FOLDERS = '/api/folders'
 /** Moves a file to the desktop's trash (restorable from the file manager): POST ?path= */
 export const ROUTE_TRASH_FILE = '/api/file/trash'
+/** What was deleted from the shared folder, the last first (server/trash.ts): GET → { items } */
+export const ROUTE_TRASH_LIST = '/api/trash'
+/** A trashed photo / video itself, to show it before restoring: GET ?id= */
+export const ROUTE_TRASH_ITEM = '/api/trash/item'
+/** The still of a trashed photo / video (a video's from its middle): GET ?id= */
+export const ROUTE_TRASH_THUMB = '/api/trash/thumb'
+/** Puts a trashed item back where it was deleted from: POST ?id= → { path } */
+export const ROUTE_TRASH_RESTORE = '/api/trash/restore'
+/** Deletes a trashed item for good: POST ?id= */
+export const ROUTE_TRASH_DELETE = '/api/trash/delete'
 /** Moves a file into another folder of the shared folder: POST ?path=&to= */
 export const ROUTE_MOVE_FILE = '/api/file/move'
 /**
