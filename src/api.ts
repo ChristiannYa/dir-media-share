@@ -666,13 +666,14 @@ export async function setPlays(path: string, count: number): Promise<void> {
  * Most played first, shared by every device: the `limit` videos and photos
  * inside a folder (subfolders included), or (`kind` 'folders') the `limit`
  * folders directly inside it, by the plays of everything in them added up.
- * `by` 'time': the longest watched first instead (time watched)
+ * `by` 'time': the longest watched first instead (time watched); 'recent':
+ * the latest viewed first
  */
 export async function fetchMostPlayed(
   path: string,
   limit: number,
   kind: 'media' | 'folders' = 'media',
-  by: 'plays' | 'time' = 'plays',
+  by: 'plays' | 'time' | 'recent' = 'plays',
 ): Promise<Entry[]> {
   const res = await fetch(
     `${API.mostPlayed}?path=${encodeURIComponent(path)}&limit=${limit}&kind=${kind}&by=${by}`,

@@ -44,6 +44,24 @@ export function lastViewed(rel: string): number | null {
   return views.get(rel) ?? null
 }
 
+/**
+ * Everything inside the folder `folderRel` (subfolders included; files and
+ * folders alike, the handler keeps the kind it wants) that was viewed, as
+ * [path, time], the latest first (the "Recently viewed" section)
+ */
+export function recentlyViewedIn(folderRel: string): Array<[string, number]> {
+  const prefix = folderRel ? `${folderRel}/` : ''
+  return [...views]
+    .filter(([rel]) => rel.startsWith(prefix))
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+}
+
+/** The same for what sits directly inside `folderRel` (its files and subfolders) */
+export function recentlyViewedFolders(folderRel: string): Array<[string, number]> {
+  const prefix = folderRel ? `${folderRel}/` : ''
+  return recentlyViewedIn(folderRel).filter(([rel]) => !rel.slice(prefix.length).includes('/'))
+}
+
 /** The video / photo at `rel` was just played / shown: it and every folder above it were viewed now */
 export async function markViewed(rel: string): Promise<number> {
   const now = Date.now()

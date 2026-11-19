@@ -493,6 +493,22 @@ export const MOST_WATCHED_TITLE = 'Most watch time'
 /** Shown in that section while nothing in the folder was watched yet */
 export const MOST_WATCHED_EMPTY_TEXT = 'Nothing watched here...yet'
 /**
+ * Order of the sections above the grid, first on top. Move a name to move its
+ * section; one left out goes after the listed ones ("All" always comes last).
+ * played = Most viewed, watched = Most watch time, recent = Recently viewed
+ */
+export const MOST_SECTION_ORDER: readonly string[] = ['hearted', 'recent', 'played', 'watched']
+/**
+ * How many the "Recently viewed" section (under "Most watch time", in the same
+ * folders, listing the same kind) shows (default; see Settings → Most
+ * played): the latest viewed first. 0 = no section
+ */
+export const RECENT_COUNT = 6
+/** Title of that section */
+export const RECENT_TITLE = 'Recently viewed'
+/** Shown in that section while nothing in the folder was viewed yet */
+export const RECENT_EMPTY_TEXT = 'Nothing viewed here...yet'
+/**
  * How many hearted videos / photos the "Hearted" section (under "Most
  * played", only where it lists videos and photos: .bin/<x>/<y>) shows (default; see Settings → Most played).
  * 0 = no section

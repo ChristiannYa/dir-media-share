@@ -38,7 +38,10 @@ import {
   MOST_PLAYED_PARENTS,
   MOST_PLAYED_TITLE,
   MOST_WATCHED_EMPTY_TEXT,
+  MOST_SECTION_ORDER,
   MOST_WATCHED_TITLE,
+  RECENT_EMPTY_TEXT,
+  RECENT_TITLE,
   REVEAL_MS,
   SHUTDOWN_CONFIRM,
   WATCH_TIME_FLUSH_MS,
@@ -79,18 +82,22 @@ const { rootFolderName, currentPath, entries, breadcrumbs, navigate, reload, ini
     mostPlayedLoaded.value = false
     mostWatched.value = []
     mostWatchedLoaded.value = false
+    recent.value = []
+    recentLoaded.value = false
     clearHearted()
   },
   onEntries: (list) => {
     media.markLoading(list)
     void loadMostPlayed()
     void loadMostWatched()
+    void loadRecent()
     void loadHearted()
   },
   onReload: (list) => {
     media.update(list)
     void loadMostPlayed()
     void loadMostWatched()
+    void loadRecent()
     void loadHearted()
   },
 })
@@ -150,7 +157,10 @@ async function loadMostPlayed() {
 }
 
 // a new count (Settings, on any device once it reloads them) shows right away
-watch(() => settings.mostPlayedCount, () => void loadMostPlayed())
+watch(
+  () => settings.mostPlayedCount,
+  () => void loadMostPlayed(),
+)
 
 function clearMostPlayed() {
   mostPlayed.value = []
@@ -189,12 +199,57 @@ async function loadMostWatched() {
 }
 
 // a new count (Settings) shows right away
-watch(() => settings.mostWatchedCount, () => void loadMostWatched())
+watch(
+  () => settings.mostWatchedCount,
+  () => void loadMostWatched(),
+)
 
 function clearMostWatched() {
   mostWatched.value = []
   mostWatchedLoaded.value = false
   media.setExtra([], mostWatchedKey, 'most-watched')
+}
+
+// ── Recently viewed ──
+// Under "Most watch time", in the same folders and of the same kind (folders or
+// videos and photos), but by when they were last viewed (server/views.ts): the
+// latest first (Settings → Most played → Recently viewed shown)
+
+const recent = ref<Entry[]>([])
+/** The section's list for the open folder has arrived (even if empty) */
+const recentLoaded = ref(false)
+/** The section's cards keep their own loading / preview state, apart from the other cards of the same file */
+const recentKey = (entry: Entry) => `recent:${entry.path}`
+/** Only the latest request may fill the section */
+let recentRequest = 0
+
+async function loadRecent() {
+  const request = ++recentRequest
+  const path = currentPath.value
+  const count = settings.recentCount
+  const kind = mostPlayedKind.value
+  if (!kind || count <= 0) return clearRecent()
+  try {
+    const list = await fetchMostPlayed(path, count, kind, 'recent')
+    if (request !== recentRequest || currentPath.value !== path) return
+    media.setExtra(list, recentKey, 'recent')
+    recent.value = list
+    recentLoaded.value = true
+  } catch (e) {
+    console.warn(e)
+  }
+}
+
+// a new count (Settings) shows right away
+watch(
+  () => settings.recentCount,
+  () => void loadRecent(),
+)
+
+function clearRecent() {
+  recent.value = []
+  recentLoaded.value = false
+  media.setExtra([], recentKey, 'recent')
 }
 
 /**
@@ -205,6 +260,7 @@ const shownEntries = () => [
   ...entries.value,
   ...mostPlayed.value,
   ...mostWatched.value,
+  ...recent.value,
   ...hearted.value,
   ...heartedPool,
 ]
@@ -256,7 +312,10 @@ function clearHearted() {
 }
 
 // a new count (Settings) shows right away
-watch(() => settings.heartedCount, () => void loadHearted())
+watch(
+  () => settings.heartedCount,
+  () => void loadHearted(),
+)
 
 /** A full section swaps one random card for a random one it doesn't show */
 function swapHearted() {
@@ -368,9 +427,18 @@ const lightboxEntries = computed(() => sortedEntries.value.filter(isMediaEntry))
  * not in selection mode: picks belong to the grid). Not in an empty folder:
  * its own message says enough
  */
+/** CSS order of a section above the grid, by its place in MOST_SECTION_ORDER (unlisted: after them) */
+const sectionOrder = (name: string) => {
+  const i = MOST_SECTION_ORDER.indexOf(name)
+  return { order: i < 0 ? MOST_SECTION_ORDER.length : i }
+}
+
 const showMostPlayed = computed(
   () =>
-    (mostPlayedLoaded.value || mostWatchedLoaded.value || heartedLoaded.value) &&
+    (mostPlayedLoaded.value ||
+      mostWatchedLoaded.value ||
+      recentLoaded.value ||
+      heartedLoaded.value) &&
     entries.value.length > 0 &&
     !selecting.value,
 )
@@ -814,120 +882,149 @@ onUnmounted(() => {
       :class="{ fixed: settings.gridColumns > 0, single: settings.gridColumns === 1 }"
       :style="columnStyle"
     >
-    <BreadcrumbBar
-      :root-name="rootFolderName"
-      :crumbs="breadcrumbs"
-      :stats="folderStats"
-      :alphabet="alphabet"
-      @letter="scrollToLetter"
-      @navigate="goTo"
-      @settings="settingsOpen = true"
-      @shutdown="shutdown"
-      @changed="refresh"
-      @renamed="goTo"
-    />
+      <BreadcrumbBar
+        :root-name="rootFolderName"
+        :crumbs="breadcrumbs"
+        :stats="folderStats"
+        :alphabet="alphabet"
+        @letter="scrollToLetter"
+        @navigate="goTo"
+        @settings="settingsOpen = true"
+        @shutdown="shutdown"
+        @changed="refresh"
+        @renamed="goTo"
+      />
 
-    <SettingsDialog v-if="settingsOpen" @close="settingsOpen = false" />
+      <SettingsDialog v-if="settingsOpen" @close="settingsOpen = false" />
 
-    <div v-if="entries.length === 0" class="empty">
-      <span class="empty-icon">📭</span>
-      <p>{{ EMPTY_FOLDER_TEXT }}</p>
-    </div>
+      <div v-if="entries.length === 0" class="empty">
+        <span class="empty-icon">📭</span>
+        <p>{{ EMPTY_FOLDER_TEXT }}</p>
+      </div>
 
-    <!-- the most played videos and photos of this folder and its subfolders -->
-    <section v-if="showMostPlayed" class="most-played">
-      <div class="most-played-inner">
-        <template v-if="mostPlayedLoaded && settings.mostPlayedCount > 0">
-          <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
-          <p v-if="mostPlayed.length === 0" class="most-played-empty">
-            {{ MOST_PLAYED_EMPTY_TEXT }}
-          </p>
-          <div v-else class="grid">
-            <GalleryCard
-              v-for="entry in mostPlayed"
-              :key="mostPlayedKey(entry)"
-              :status-key="mostPlayedKey(entry)"
-              :entry="entry"
-              :selecting="false"
-              :selected="false"
-              link-only
-              views-only
-              @open="openFromMostPlayed"
-              @favorite="toggleFavorite"
-              @changed="refresh"
-            />
+      <!-- the most played videos and photos of this folder and its subfolders -->
+      <section v-if="showMostPlayed" class="most-played">
+        <div class="most-played-inner">
+          <div
+            v-if="mostPlayedLoaded && settings.mostPlayedCount > 0"
+            :style="sectionOrder('played')"
+          >
+            <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
+            <p v-if="mostPlayed.length === 0" class="most-played-empty">
+              {{ MOST_PLAYED_EMPTY_TEXT }}
+            </p>
+            <div v-else class="grid">
+              <GalleryCard
+                v-for="entry in mostPlayed"
+                :key="mostPlayedKey(entry)"
+                :status-key="mostPlayedKey(entry)"
+                :entry="entry"
+                :selecting="false"
+                :selected="false"
+                link-only
+                views-only
+                @open="openFromMostPlayed"
+                @favorite="toggleFavorite"
+                @changed="refresh"
+              />
+            </div>
           </div>
-        </template>
 
-        <!-- the longest watched videos and photos (or folders), like the above -->
-        <template v-if="mostWatchedLoaded && settings.mostWatchedCount > 0">
-          <h2 class="section-title">{{ MOST_WATCHED_TITLE }}</h2>
-          <p v-if="mostWatched.length === 0" class="most-played-empty">
-            {{ MOST_WATCHED_EMPTY_TEXT }}
-          </p>
-          <div v-else class="grid">
-            <GalleryCard
-              v-for="entry in mostWatched"
-              :key="mostWatchedKey(entry)"
-              :status-key="mostWatchedKey(entry)"
-              :entry="entry"
-              :selecting="false"
-              :selected="false"
-              link-only
-              views-only
-              @open="openFromMostPlayed"
-              @favorite="toggleFavorite"
-              @changed="refresh"
-            />
+          <!-- the longest watched videos and photos (or folders), like the above -->
+          <div
+            v-if="mostWatchedLoaded && settings.mostWatchedCount > 0"
+            :style="sectionOrder('watched')"
+          >
+            <h2 class="section-title">{{ MOST_WATCHED_TITLE }}</h2>
+            <p v-if="mostWatched.length === 0" class="most-played-empty">
+              {{ MOST_WATCHED_EMPTY_TEXT }}
+            </p>
+            <div v-else class="grid">
+              <GalleryCard
+                v-for="entry in mostWatched"
+                :key="mostWatchedKey(entry)"
+                :status-key="mostWatchedKey(entry)"
+                :entry="entry"
+                :selecting="false"
+                :selected="false"
+                link-only
+                views-only
+                @open="openFromMostPlayed"
+                @favorite="toggleFavorite"
+                @changed="refresh"
+              />
+            </div>
           </div>
-        </template>
 
-        <!-- random hearted videos and photos of this folder and its subfolders -->
-        <template v-if="heartedLoaded && settings.heartedCount > 0">
-          <h2 class="section-title">{{ HEARTED_TITLE }}</h2>
-          <p v-if="hearted.length === 0" class="most-played-empty">
-            {{ HEARTED_EMPTY_TEXT }}
-          </p>
-          <div v-else class="grid hearted">
-            <!-- one slot per position: a swap shrinks the old card away, then
+          <!-- the latest viewed videos and photos (or folders), like the above -->
+          <div v-if="recentLoaded && settings.recentCount > 0" :style="sectionOrder('recent')">
+            <h2 class="section-title">{{ RECENT_TITLE }}</h2>
+            <p v-if="recent.length === 0" class="most-played-empty">
+              {{ RECENT_EMPTY_TEXT }}
+            </p>
+            <div v-else class="grid">
+              <GalleryCard
+                v-for="entry in recent"
+                :key="recentKey(entry)"
+                :status-key="recentKey(entry)"
+                :entry="entry"
+                :selecting="false"
+                :selected="false"
+                link-only
+                views-only
+                @open="openFromMostPlayed"
+                @favorite="toggleFavorite"
+                @changed="refresh"
+              />
+            </div>
+          </div>
+
+          <!-- random hearted videos and photos of this folder and its subfolders -->
+          <div v-if="heartedLoaded && settings.heartedCount > 0" :style="sectionOrder('hearted')">
+            <h2 class="section-title">{{ HEARTED_TITLE }}</h2>
+            <p v-if="hearted.length === 0" class="most-played-empty">
+              {{ HEARTED_EMPTY_TEXT }}
+            </p>
+            <div v-else class="grid hearted">
+              <!-- one slot per position: a swap shrinks the old card away, then
                  grows the new one in its place (no wrapper: the cards stay
                  the masonry grid's items) -->
-            <template v-for="(entry, i) in hearted" :key="i">
-              <Transition name="hearted-swap" mode="out-in">
-                <GalleryCard
-                  :key="heartedKey(entry)"
-                  :status-key="heartedKey(entry)"
-                  :entry="entry"
-                  :selecting="false"
-                  :selected="false"
-                  link-only
-                  bare
-                  @open="openFromMostPlayed"
-                  @favorite="toggleFavorite"
-                  @changed="refresh"
-                />
-              </Transition>
-            </template>
+              <template v-for="(entry, i) in hearted" :key="i">
+                <Transition name="hearted-swap" mode="out-in">
+                  <GalleryCard
+                    :key="heartedKey(entry)"
+                    :status-key="heartedKey(entry)"
+                    :entry="entry"
+                    :selecting="false"
+                    :selected="false"
+                    link-only
+                    bare
+                    @open="openFromMostPlayed"
+                    @favorite="toggleFavorite"
+                    @changed="refresh"
+                  />
+                </Transition>
+              </template>
+            </div>
           </div>
-        </template>
 
-        <h2 class="section-title">All</h2>
+          <h2 class="section-title all-title">All</h2>
+        </div>
+      </section>
+
+      <div class="grid main-grid">
+        <GalleryCard
+          v-for="entry in sortedEntries"
+          :key="entry.path"
+          :entry="entry"
+          :selecting="selecting"
+          :selected="picked.has(entry.path)"
+          :revealing="revealingPath === entry.path"
+          @open="open"
+          @favorite="toggleFavorite"
+          @changed="refresh"
+        />
       </div>
-    </section>
-
-    <div class="grid main-grid">
-      <GalleryCard
-        v-for="entry in sortedEntries"
-        :key="entry.path"
-        :entry="entry"
-        :selecting="selecting"
-        :selected="picked.has(entry.path)"
-        :revealing="revealingPath === entry.path"
-        @open="open"
-        @favorite="toggleFavorite"
-        @changed="refresh"
-      />
-    </div>
     </div>
 
     <SelectionBar
@@ -1012,8 +1109,8 @@ onUnmounted(() => {
 .column.fixed {
   --column-gap: calc(var(--grid-gap) + 2 * var(--card-outset));
   max-width: calc(
-    var(--grid-columns) * var(--grid-column-width) + (var(--grid-columns) - 1) *
-      var(--column-gap) + 2 * var(--card-outset)
+    var(--grid-columns) * var(--grid-column-width) + (var(--grid-columns) - 1) * var(--column-gap) +
+      2 * var(--card-outset)
   );
   margin-inline: auto;
 }
@@ -1045,6 +1142,14 @@ onUnmounted(() => {
 
 .most-played-inner {
   min-height: 0;
+  /* the sections' order comes from MOST_SECTION_ORDER (CSS `order`) */
+  display: flex;
+  flex-direction: column;
+}
+
+/* "All" stays under every section */
+.all-title {
+  order: 99;
 }
 
 .section-title {

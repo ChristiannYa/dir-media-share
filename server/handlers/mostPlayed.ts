@@ -5,8 +5,9 @@
 import { sendJson, type Handler } from '../http.ts'
 import { entryAt } from '../listing.ts'
 import { resolveDir } from '../paths.ts'
-import { mostPlayedFolders, mostPlayedIn } from '../plays.ts'
+import { folderPlays, mostPlayedFolders, mostPlayedIn, playCount } from '../plays.ts'
 import type { Entry } from '../types.ts'
+import { recentlyViewedFolders, recentlyViewedIn } from '../views.ts'
 import { mostWatchedFolders, mostWatchedIn } from '../watchTime.ts'
 
 /** Most entries one request may ask for */
@@ -19,24 +20,35 @@ const MAX_LIMIT = 100
  *   (subfolders included) played most in the viewer
  * - folders: the `limit` folders directly inside it whose videos and photos
  *   (at any depth) were played most, all added up
- * `by`: plays (default, server/plays.ts) or time watched (server/watchTime.ts).
+ * `by`: plays (default, server/plays.ts), time watched (server/watchTime.ts) or
+ * recent (latest viewed first, server/views.ts).
  * Files and folders that are gone are skipped.
  */
 export const mostPlayed: Handler = async (_req, res, url) => {
   const rel = url.searchParams.get('path') ?? ''
   const limit = Math.min(MAX_LIMIT, Math.floor(Number(url.searchParams.get('limit')) || 0))
   const folders = url.searchParams.get('kind') === 'folders'
-  const byTime = url.searchParams.get('by') === 'time'
+  const by = url.searchParams.get('by')
   if (limit <= 0 || !(await resolveDir(rel))) return sendJson(res, [])
 
-  const ranked = byTime
-    ? folders
-      ? mostWatchedFolders(rel)
-      : mostWatchedIn(rel)
-    : folders
-      ? mostPlayedFolders(rel)
-      : mostPlayedIn(rel)
-  const candidates = ranked.map(([p]) => p)
+  const ranked =
+    by === 'recent'
+      ? folders
+        ? recentlyViewedFolders(rel)
+        : recentlyViewedIn(rel)
+      : by === 'time'
+        ? folders
+          ? mostWatchedFolders(rel)
+          : mostWatchedIn(rel)
+        : folders
+          ? mostPlayedFolders(rel)
+          : mostPlayedIn(rel)
+  // recently viewed: only what has a view count (a view time can outlive a count set back to 0)
+  const candidates = ranked
+    .map(([p]) => p)
+    .filter(
+      (p) => by !== 'recent' || (folders ? folderPlays(p) : playCount(p)) > 0,
+    )
   const wanted = (entry: Entry | null): entry is Entry =>
     entry !== null && (folders ? entry.kind === 'folder' : entry.kind !== 'folder')
   const found: Entry[] = []
