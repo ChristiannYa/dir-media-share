@@ -418,6 +418,12 @@ export type BadgeKind = 'temporal' | 'metadata'
 export const BADGES = {
   /** The preview's pill: "Asking server", "Encoding 40%", "From browser cache"… */
   status: { priority: 40, kind: 'temporal' },
+  /**
+   * A video / photo is being edited and / or compressed now (or waits in the
+   * queue for it). Negative: under the metadata row (the views and the time
+   * watched), whose order is 0, instead of above it like the other temporal ones
+   */
+  working: { priority: -10, kind: 'temporal' },
   /** "Compressed!": a compressed copy not opened yet */
   compressed: { priority: 20, kind: 'temporal' },
   /** A folder card: how many compressed copies not opened yet are directly inside it */

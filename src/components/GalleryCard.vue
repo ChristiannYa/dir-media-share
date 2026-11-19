@@ -29,6 +29,7 @@ import { ICON_CLOCK, ICON_COMPRESS, ICON_EDIT, ICON_EYE, ICON_HEART } from '@/ic
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
+import { useCompressQueue } from '@/composables/useCompressQueue'
 import type { Entry } from '@/types'
 import {
   compressedOriginalPath,
@@ -151,6 +152,24 @@ const showCompressedBanner = computed(
     !props.viewsOnly &&
     !props.bare,
 )
+
+/**
+ * What the compress queue is doing to this file now (waiting or running): an
+ * edit and / or a compression. Its badge shows until the queue is done with it
+ */
+const { activeWork, activeFolderWork } = useCompressQueue()
+/** A folder: a file directly inside it (not in its subfolders) */
+const work = computed(
+  () =>
+    (props.entry.kind === 'folder' ? activeFolderWork : activeWork).value.get(props.entry.path) ??
+    null,
+)
+const showWorking = computed(() => !!work.value && !props.viewsOnly && !props.bare)
+const workingLabel = computed(() => {
+  const w = work.value
+  if (!w) return ''
+  return w.edit && w.compress ? 'Editing & compressing…' : w.edit ? 'Editing…' : 'Compressing…'
+})
 
 // ── Badge stack ──
 // The badges and pills at the top-left corner (the status pill, "Whole video",
@@ -637,6 +656,21 @@ watch(
       />
       <!-- top-left: the preview's status pill (put here by PreviewVideo) -->
       <div ref="stackEl" class="badge-stack">
+        <!-- a file directly inside (not in its subfolders) is being edited and / or compressed;
+             under the views and the time watched, like on a photo / video -->
+        <StackBadge badge="working" :show="showWorking">
+          <span
+            class="info-badge working-badge"
+            role="status"
+            :title="`${workingLabel} (a file inside this folder)`"
+          >
+            <svg v-if="work?.edit" viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EDIT" /></svg>
+            <svg v-if="work?.compress" viewBox="0 0 24 24" aria-hidden="true">
+              <path :d="ICON_COMPRESS" />
+            </svg>
+            {{ workingLabel }}
+          </span>
+        </StackBadge>
         <!-- the compressed copies not opened yet directly inside this folder (not
              in its subfolders: the count is on the folder that holds them) -->
         <StackBadge badge="compressedFolder" :show="!!entry.compressed_new_count && !viewsOnly">
@@ -754,8 +788,17 @@ watch(
         @load="onImageLoad"
         @error="onMediaError(trackKey)"
       />
-      <!-- top-left: a compressed copy not opened yet -->
+      <!-- top-left: being edited / compressed now, and a compressed copy not opened yet -->
       <div ref="stackEl" class="badge-stack">
+        <StackBadge badge="working" :show="showWorking">
+          <span class="info-badge working-badge" role="status" :title="workingLabel">
+            <svg v-if="work?.edit" viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EDIT" /></svg>
+            <svg v-if="work?.compress" viewBox="0 0 24 24" aria-hidden="true">
+              <path :d="ICON_COMPRESS" />
+            </svg>
+            {{ workingLabel }}
+          </span>
+        </StackBadge>
         <StackBadge badge="compressed" :show="showCompressedBanner">
           <!-- "Edited!" and "Compressed!" as two icon badges in one row, so they
                take the least room (an edited copy compressed too wears both);
@@ -941,6 +984,16 @@ watch(
            app mode opens / closes the views. StackBadge puts each in the column
            or the row by its kind, wherever it's written -->
       <div ref="stackEl" class="badge-stack">
+        <!-- being edited and / or compressed now (or waiting for it) -->
+        <StackBadge badge="working" :show="showWorking">
+          <span class="info-badge working-badge" role="status" :title="workingLabel">
+            <svg v-if="work?.edit" viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EDIT" /></svg>
+            <svg v-if="work?.compress" viewBox="0 0 24 24" aria-hidden="true">
+              <path :d="ICON_COMPRESS" />
+            </svg>
+            {{ workingLabel }}
+          </span>
+        </StackBadge>
         <StackBadge badge="compressed" :show="showCompressedBanner">
           <!-- "Edited!" and "Compressed!" as two icon badges in one row, so they
                take the least room (an edited copy compressed too wears both);
@@ -1847,6 +1900,35 @@ watch(
   color: #fff;
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+/* "Editing… / Compressing…": the same purple glass, pulsing while the queue works on it */
+.working-badge {
+  /* the gap under the time watched above it (the slot only keeps one below) */
+  margin-top: 0.3rem;
+  background:
+    linear-gradient(145deg, rgba(138, 92, 246, 0.72), rgba(138, 92, 246, 0.5)),
+    rgba(5, 4, 10, var(--badge-darkness));
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+  border: 1px solid var(--edge);
+  box-shadow: var(--edge-shine);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  animation: working-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes working-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .working-badge {
+    animation: none;
+  }
 }
 
 /* "Edited!" and "Compressed!" side by side, each its own icon badge: always

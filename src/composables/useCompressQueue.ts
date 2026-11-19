@@ -109,6 +109,46 @@ const activePaths = computed(
     new Set(list.value.filter((j) => j.action !== 'edit' && isActive(j)).map((j) => j.path)),
 )
 
+/**
+ * What is waiting or running on each file now, by the path of the original:
+ * an edit (Edit dialog's trim / crop) and / or a compression (an edit that is
+ * compressed too counts as both). The gallery cards wear a badge for it
+ */
+const activeWork = computed(() => {
+  const work = new Map<string, { edit: boolean; compress: boolean }>()
+  for (const job of list.value) {
+    if (!isActive(job)) continue
+    const w = work.get(job.path) ?? { edit: false, compress: false }
+    if (job.action === 'edit') {
+      w.edit = true
+      if (job.compressAfter) w.compress = true
+    } else {
+      w.compress = true
+    }
+    work.set(job.path, w)
+  }
+  return work
+})
+
+/**
+ * The same by folder: every folder (by path) that directly holds a file waiting
+ * or being edited / compressed (one level up only, not the folders above it),
+ * so its card wears the badge too
+ */
+const activeFolderWork = computed(() => {
+  const work = new Map<string, { edit: boolean; compress: boolean }>()
+  for (const job of list.value) {
+    if (!isActive(job) || !job.folder) continue
+    const edit = job.action === 'edit'
+    const compress = job.action !== 'edit' || job.compressAfter
+    const w = work.get(job.folder) ?? { edit: false, compress: false }
+    if (edit) w.edit = true
+    if (compress) w.compress = true
+    work.set(job.folder, w)
+  }
+  return work
+})
+
 /** The job compressing now (the video one, if a photo runs beside it) */
 const current = computed(
   () =>
@@ -150,5 +190,15 @@ const remainingWeight = computed(() =>
 
 /** The compress queue, live (see above) */
 export function useCompressQueue() {
-  return { list, byFolder, activeCount, activePaths, current, remainingWeight, isActive }
+  return {
+    list,
+    byFolder,
+    activeCount,
+    activePaths,
+    activeWork,
+    activeFolderWork,
+    current,
+    remainingWeight,
+    isActive,
+  }
 }
