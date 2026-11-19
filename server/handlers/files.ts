@@ -182,6 +182,8 @@ const MAX_PLAYS = 1_000_000
 /**
  * POST /api/plays?path=&count= : sets how many times a video / photo was
  * viewed (the metadata dialog), on every device (server/plays.ts). Answers `{ plays }`.
+ * Setting 0 also sets its own "last viewed" back to never (server/views.ts; the
+ * folders above it keep theirs, as when a file is trashed).
  * Refused in dev mode (server/appMode.ts).
  */
 export const setPlays: Handler = async (req, res, url) => {
@@ -196,6 +198,8 @@ export const setPlays: Handler = async (req, res, url) => {
   }
   try {
     await setPlayCount(rel, count)
+    // never viewed: no "last viewed" either
+    if (count === 0) await forgetView(rel)
   } catch (e) {
     console.error('Saving the play counts failed:', e)
     return sendJson(res, { error: 'The views could not be saved' }, 500)

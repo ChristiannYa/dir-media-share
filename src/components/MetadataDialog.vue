@@ -163,6 +163,9 @@ function close() {
       </div>
 
       <p v-if="locked" class="note">Switch to goon mode to change these.</p>
+      <p v-else-if="viewsChanged && views === 0" class="note">
+        With 0 views, “Last viewed” goes back to Never.
+      </p>
       <p v-if="viewsProblem ?? error" class="error">{{ viewsProblem ?? error }}</p>
 
       <div class="actions">
