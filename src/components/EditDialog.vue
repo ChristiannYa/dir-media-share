@@ -540,6 +540,44 @@ function onTime() {
   }
 }
 
+/** The start can be moved to where the video is now: past the start, and far enough from the end */
+const canStartHere = computed(
+  () => current.value > trim.start + 0.05 && current.value <= trim.end - MIN_LENGTH,
+)
+
+/**
+ * "Start here": the part kept starts where the video is now (the start
+ * handle jumps to the playhead), so what's before it is cut off
+ */
+function trimStartHere() {
+  if (saving.value) return
+  const v = video.value
+  v?.pause()
+  const t = v?.currentTime ?? current.value
+  trim.start = clamp(t, 0, trim.end - MIN_LENGTH)
+  seek(trim.start)
+}
+
+/** The end can be moved to where the video is now: before the end, and far enough from the start */
+const canEndHere = computed(
+  () => current.value < trim.end - 0.05 && current.value >= trim.start + MIN_LENGTH,
+)
+
+/**
+ * "End here": the part kept ends where the video is now (the end handle
+ * jumps to the playhead), so what's after it is cut off
+ */
+function trimEndHere() {
+  if (saving.value) return
+  const v = video.value
+  v?.pause()
+  const t = v?.currentTime ?? current.value
+  trim.end = clamp(t, trim.start + MIN_LENGTH, duration.value)
+  // the end was moved by hand: no longer an app's outro cut off
+  promo.value = null
+  seek(trim.end)
+}
+
 function togglePlay() {
   const v = video.value
   if (!v) return
@@ -795,7 +833,11 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
       </div>
       <div class="times">
         <span>{{ formatTime(trim.start) }}</span>
-        <span>{{ formatTime(trim.end - trim.start) }} kept</span>
+        <!-- where the video is now (the white line), then how much is kept -->
+        <span>
+          <span class="now" title="Where the video is now">{{ formatTime(current) }}</span>
+          · {{ formatTime(trim.end - trim.start) }} kept
+        </span>
         <span>{{ formatTime(trim.end) }}</span>
       </div>
 
@@ -805,6 +847,34 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
         <span class="check-text">
           <span class="check-title">Trim</span>
         </span>
+        <!-- the start moves to the playhead: what's before it is cut off -->
+        <button
+          type="button"
+          class="trim-here"
+          :disabled="saving || !canStartHere"
+          :title="`Start the part kept at ${formatTime(current)} (where the video is now)`"
+          @click="trimStartHere"
+        >
+          <!-- the start grip's bracket, "[" -->
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M14 4H8v16h6" class="tool-line" />
+          </svg>
+          Start here
+        </button>
+        <!-- the end moves to the playhead: what's after it is cut off -->
+        <button
+          type="button"
+          class="trim-here"
+          :disabled="saving || !canEndHere"
+          :title="`End the part kept at ${formatTime(current)} (where the video is now)`"
+          @click="trimEndHere"
+        >
+          End here
+          <!-- the end grip's bracket, "]" -->
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M10 4h6v16h-6" class="tool-line" />
+          </svg>
+        </button>
         <div class="promo-options" role="group" aria-label="Trim the outro of">
           <button
             v-for="key in PROMO_KEYS"
@@ -1173,6 +1243,52 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
   display: flex;
   align-items: center;
   gap: 0.6rem;
+}
+
+/* "Start here" / "End here": actions (not a choice), so buttons of their own, in the
+   group's dark fill and edge; the trim bar's yellow for its icon */
+.trim-here {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--edge);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.35);
+  color: #ddd;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.trim-here svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: #f5c518;
+}
+
+.trim-here:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.trim-here:focus-visible {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 1px;
+}
+
+.trim-here:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* where the video is now, in the times under the bar: white like the playhead */
+.now {
+  color: #fff;
 }
 
 .promo-options {
