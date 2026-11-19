@@ -556,21 +556,25 @@ async function run(job: CompressJob, file: string) {
   /**
    * The result `name` is saved: with `replace`, it takes the original's place
    * (kept as a copy if it can't, saying why); either way it gets its badges
-   * (`kind`: what was done to it) until it's opened, and shows in the listings
+   * (`kind`: what was done to it, and whether it replaced the original or is
+   * a copy) until it's opened, and shows in the listings
    */
   const finish = async (name: string, kind: { edited: boolean; compressed: boolean }) => {
     let finalName = name
     let note = `Saved as ${name}`
+    /** It took the original's place (not when that failed: then it's a copy) */
+    let replaced = false
     if (job.replace) {
       try {
         finalName = await replaceOriginal(job, file, name)
+        replaced = true
         note = finalName === job.name ? 'Replaced the original' : `Replaced the original, now ${finalName}`
       } catch (e) {
         note = e instanceof CompressError ? e.message : `The original couldn't be replaced: saved as ${name}`
       }
     }
     const copyPath = relIn(job, finalName)
-    await markCompressedNew(copyPath, kind).catch((e) =>
+    await markCompressedNew(copyPath, { ...kind, replaced }).catch((e) =>
       console.error('Saving the new compressed copies failed:', e),
     )
     // held while it was a step (or under its temporary name): it's the result now

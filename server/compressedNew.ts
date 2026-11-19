@@ -5,9 +5,11 @@
 // COMPRESSED_NEW_FILE, so every device sees the same. Moving or renaming the
 // copy keeps it; trashing drops it (see handlers/files.ts).
 //
-// What was done to each (edited, compressed) is kept with it: a file that
+// What was done to each (edited, compressed) is kept with it, and whether it
+// replaced its original or was saved beside it as a copy: a file that
 // replaced its original has the original's name, so its name can't tell.
-// Older saves have paths only: the client tells those from their names.
+// Older saves have paths only (or no `replaced`): the client tells those from
+// their names.
 //
 // Kept on globalThis: Vite reloads server files after an edit
 // (server/vitePlugin.ts), but a compress job already running keeps calling
@@ -21,8 +23,13 @@ import { mkdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { COMPRESSED_NEW_FILE } from './consts/server.ts'
 
-/** What was done to a new copy; null: not known (saved before this was kept) */
-export type NewKind = { edited: boolean; compressed: boolean } | null
+/**
+ * What was done to a new copy, and (`replaced`) whether it took its
+ * original's place (the original went to the trash) instead of being saved
+ * beside it; null: not known (saved before this was kept). `replaced` is
+ * missing on ones saved before it was kept
+ */
+export type NewKind = { edited: boolean; compressed: boolean; replaced?: boolean } | null
 
 function isKind(value: unknown): value is { edited: boolean; compressed: boolean } {
   const k = value as { edited?: unknown; compressed?: unknown } | null
@@ -38,7 +45,17 @@ function load(): Map<string, NewKind> {
       // older saves: the path alone
       if (typeof item === 'string') map.set(item, null)
       else if (item && typeof item.path === 'string') {
-        map.set(item.path, isKind(item) ? { edited: item.edited, compressed: item.compressed } : null)
+        map.set(
+          item.path,
+          isKind(item)
+            ? {
+                edited: item.edited,
+                compressed: item.compressed,
+                // older saves don't have it: the client tells from the name
+                ...(typeof item.replaced === 'boolean' ? { replaced: item.replaced } : {}),
+              }
+            : null,
+        )
       }
     }
   } catch {

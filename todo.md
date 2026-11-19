@@ -23,9 +23,6 @@
 
 - video quality enhancer
 - upload queue
-- compress and replace
-- `modify` badge on media, not folders, show if a `modify` replaced original or
-  kept a copy
 - `mip` items should always show what they're queued for (`modify`)
 - modified items in the gallery: when clicking their `modify` badge, if their
   original copy is not found, pop up a message saying so or a snacks message;

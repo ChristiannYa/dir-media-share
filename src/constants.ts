@@ -424,8 +424,12 @@ export const BADGES = {
    * watched), whose order is 0, instead of above it like the other temporal ones
    */
   working: { priority: -10, kind: 'temporal' },
-  /** "Compressed!": a compressed copy not opened yet */
-  compressed: { priority: 20, kind: 'temporal' },
+  /**
+   * A new file not opened yet: "Edited!" / "Compressed!", and "Copy" /
+   * "Replaced original". Negative like `working`: under the metadata row
+   * (right below the time watched), and above `working`
+   */
+  compressed: { priority: -5, kind: 'temporal' },
   /** A folder card: how many compressed copies not opened yet are directly inside it */
   compressedFolder: { priority: 20, kind: 'temporal' },
   /** How many times a video / photo was played, and its time watched below: first in the row */

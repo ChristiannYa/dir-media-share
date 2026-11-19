@@ -26,7 +26,15 @@ import {
   BADGE_TARGETS_KEY,
   createBadgeStackState,
 } from '@/composables/useBadgeStack'
-import { ICON_CLOCK, ICON_COMPRESS, ICON_EDIT, ICON_EYE, ICON_HEART } from '@/icons'
+import {
+  ICON_CLOCK,
+  ICON_COMPRESS,
+  ICON_COPY,
+  ICON_EDIT,
+  ICON_EYE,
+  ICON_HEART,
+  ICON_REPLACE,
+} from '@/icons'
 import { settings } from '@/settings'
 import { useContextHold } from '@/composables/useContextHold'
 import { MEDIA_STATUS_KEY } from '@/composables/useMediaStatus'
@@ -225,6 +233,27 @@ const showCompressedBadge = computed(
     props.entry.new_kind?.compressed ??
     (!isEditedCopy(props.entry) || isCompressedCopy(props.entry)),
 )
+
+/**
+ * Whether the new file took its original's place (the original went to the
+ * trash: "Replaced original") or was saved beside it ("Copy"), as a third
+ * badge after "Edited!" / "Compressed!". What the server says (new_kind's
+ * `replaced`); older ones, from the name: a copy's has the compression's tag
+ * or "_edited", one that replaced its original has the original's name
+ */
+const replacedOriginal = computed(
+  () =>
+    props.entry.new_kind?.replaced ??
+    !(isEditedCopy(props.entry) || isCompressedCopy(props.entry)),
+)
+
+/** The original a copy was made from, for the "Copy" badge to lead to, like the others (null: not listed / unknown) */
+const copyOriginal = computed(() => compressedOriginal.value ?? editedOriginal.value)
+
+const copyBadgeLabel = computed(() => {
+  if (replacedOriginal.value) return 'Replaced the original (it is in the trash)'
+  return copyOriginal.value ? 'A copy: the original is kept. Show it' : 'A copy: the original is kept'
+})
 
 /** An "Edited!" / "Compressed!" icon badge was tapped: goes to the original's card (its folder opens first if needed) */
 function showOriginal(original: string | null) {
@@ -811,9 +840,10 @@ watch(
           </span>
         </StackBadge>
         <StackBadge badge="compressed" :show="showCompressedBanner">
-          <!-- "Edited!" and "Compressed!" as two icon badges in one row, so they
-               take the least room (an edited copy compressed too wears both);
-               the words are their tooltip and screen reader label -->
+          <!-- "Edited!" and "Compressed!" as icon badges in one row, so they
+               take the least room (an edited copy compressed too wears both),
+               then "Copy" / "Replaced original"; the words are their tooltip
+               and screen reader label -->
           <div class="new-copy-badges">
             <!-- a tap leads to the file it was edited from, if it's listed (a
                  button then, so it doesn't open the card or its menu) -->
@@ -846,6 +876,26 @@ watch(
               @click.stop="showOriginal(compressedOriginal)"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+            </component>
+            <!-- whether it took the original's place or sits beside it: a
+                 copy's leads to the original, like the badges before it; a
+                 replacement's original is in the trash, so it leads nowhere -->
+            <component
+              :is="!replacedOriginal && copyOriginal ? 'button' : 'span'"
+              :type="!replacedOriginal && copyOriginal ? 'button' : undefined"
+              class="info-badge"
+              :class="[
+                replacedOriginal ? 'replaced-badge' : 'copy-badge',
+                { 'compressed-link': !replacedOriginal && copyOriginal },
+              ]"
+              :title="copyBadgeLabel"
+              :role="!replacedOriginal && copyOriginal ? undefined : 'img'"
+              :aria-label="copyBadgeLabel"
+              @click.stop="!replacedOriginal && showOriginal(copyOriginal)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path :d="replacedOriginal ? ICON_REPLACE : ICON_COPY" />
+              </svg>
             </component>
           </div>
         </StackBadge>
@@ -987,10 +1037,11 @@ watch(
         <span class="sweep-frost force-glass" />
       </div>
       <!-- top-left, stacked by priority (BADGES): the preview's status pill
-           (put here by PreviewVideo), then "Compressed!" for a copy not opened
-           yet, then a row of the metadata: how many times it was played (not
-           in selection mode: the check is there) and the icon PreviewVideo
-           adds when its preview is the whole video. Each slides away when it
+           (put here by PreviewVideo), then a row of the metadata: how many
+           times it was played (not in selection mode: the check is there) and
+           the icon PreviewVideo adds when its preview is the whole video; under
+           it the new-file badges ("Compressed!"… for a file not opened yet),
+           then "Editing… / Compressing…". Each slides away when it
            goes, and the ones under / after it slide up / along. Switching the
            app mode opens / closes the views. StackBadge puts each in the column
            or the row by its kind, wherever it's written -->
@@ -1006,9 +1057,10 @@ watch(
           </span>
         </StackBadge>
         <StackBadge badge="compressed" :show="showCompressedBanner">
-          <!-- "Edited!" and "Compressed!" as two icon badges in one row, so they
-               take the least room (an edited copy compressed too wears both);
-               the words are their tooltip and screen reader label -->
+          <!-- "Edited!" and "Compressed!" as icon badges in one row, so they
+               take the least room (an edited copy compressed too wears both),
+               then "Copy" / "Replaced original"; the words are their tooltip
+               and screen reader label -->
           <div class="new-copy-badges">
             <!-- a tap leads to the file it was edited from, if it's listed (a
                  button then, so it doesn't open the card or its menu) -->
@@ -1041,6 +1093,26 @@ watch(
               @click.stop="showOriginal(compressedOriginal)"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_COMPRESS" /></svg>
+            </component>
+            <!-- whether it took the original's place or sits beside it: a
+                 copy's leads to the original, like the badges before it; a
+                 replacement's original is in the trash, so it leads nowhere -->
+            <component
+              :is="!replacedOriginal && copyOriginal ? 'button' : 'span'"
+              :type="!replacedOriginal && copyOriginal ? 'button' : undefined"
+              class="info-badge"
+              :class="[
+                replacedOriginal ? 'replaced-badge' : 'copy-badge',
+                { 'compressed-link': !replacedOriginal && copyOriginal },
+              ]"
+              :title="copyBadgeLabel"
+              :role="!replacedOriginal && copyOriginal ? undefined : 'img'"
+              :aria-label="copyBadgeLabel"
+              @click.stop="!replacedOriginal && showOriginal(copyOriginal)"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path :d="replacedOriginal ? ICON_REPLACE : ICON_COPY" />
+              </svg>
             </component>
           </div>
         </StackBadge>
@@ -1952,9 +2024,26 @@ watch(
    the dark badge glass. In the top-left stack, under the status pill. The
    "Edited!" badge beside it (an edited copy) has the same tint */
 .compressed-badge,
-.edited-badge {
+.edited-badge,
+.copy-badge {
   background:
     linear-gradient(145deg, rgba(138, 92, 246, 0.72), rgba(138, 92, 246, 0.5)),
+    rgba(5, 4, 10, var(--badge-darkness));
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+  backdrop-filter: blur(10px) saturate(150%);
+  border: 1px solid var(--edge);
+  box-shadow: var(--edge-shine);
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* "Replaced original": the original is in the trash, so the red of the
+   compress queue's "replace" tag (CompressDialog.vue) over the badge glass,
+   to stand out from a copy's purple */
+.replaced-badge {
+  background:
+    linear-gradient(145deg, rgba(231, 76, 60, 0.72), rgba(231, 76, 60, 0.5)),
     rgba(5, 4, 10, var(--badge-darkness));
   -webkit-backdrop-filter: blur(10px) saturate(150%);
   backdrop-filter: blur(10px) saturate(150%);
@@ -1994,9 +2083,12 @@ watch(
   }
 }
 
-/* "Edited!" and "Compressed!" side by side, each its own icon badge: always
-   one row, as the two icons fit on any card */
+/* "Edited!", "Compressed!" and "Copy" / "Replaced original" side by side,
+   each its own icon badge: always one row, as the icons fit on any card.
+   Under the time watched (BADGES' `compressed`), so the same gap above as
+   .working-badge's (the slot only keeps one below) */
 .new-copy-badges {
+  margin-top: 0.3rem;
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-start;
