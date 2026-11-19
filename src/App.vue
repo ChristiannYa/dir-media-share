@@ -128,14 +128,7 @@ async function loadMostPlayed() {
   const path = currentPath.value
   const count = settings.mostPlayedCount
   const kind = mostPlayedKind.value
-  // dev mode: no section (src/appMode.ts)
-  if (!kind || count <= 0 || !recordsVideoData.value) {
-    // still shrinking away (just switched to dev mode): its cards keep what
-    // they show until it's gone, then onMostPlayedLeft empties it
-    if (mostPlayedLeaving) return
-    clearMostPlayed()
-    return
-  }
+  if (!kind || count <= 0) return clearMostPlayed()
   try {
     const list = await fetchMostPlayed(path, count, kind)
     if (request !== mostPlayedRequest || currentPath.value !== path) return
@@ -243,40 +236,6 @@ function syncHeartedWith(entry: Entry, on: boolean) {
   syncHeartedExtra()
 }
 
-// ── Switching the app mode: "Most played" grows in / shrinks away ──
-// Only then: opening a folder or entering selection mode still shows / hides
-// it at once, as before.
-
-/** Longest wait for the section after a switch (its list loads first); after it, no animation */
-const MODE_SWITCH_MAX_MS = 4000
-
-/** The app mode was just switched: the section's next show / hide is animated */
-const modeSwitching = ref(false)
-let modeSwitchTimer: ReturnType<typeof setTimeout> | undefined
-/** The section is playing its shrink-away */
-let mostPlayedLeaving = false
-
-function onMostPlayedLeaving() {
-  mostPlayedLeaving = true
-}
-
-function onMostPlayedLeft() {
-  mostPlayedLeaving = false
-  modeSwitching.value = false
-  // emptied now that it's gone (loadMostPlayed left it alone meanwhile)
-  if (!recordsVideoData.value) clearMostPlayed()
-}
-
-// switching between dev and goon mode: the listing again, with or without the
-// plays and "last viewed" (the server leaves them out in dev mode); reloading
-// also fills or empties "Most played"
-watch(recordsVideoData, () => {
-  modeSwitching.value = true
-  clearTimeout(modeSwitchTimer)
-  modeSwitchTimer = setTimeout(() => (modeSwitching.value = false), MODE_SWITCH_MAX_MS)
-  void reload()
-})
-
 // the listing in the order picked in Settings (Sorting → Sort by)
 const sortedEntries = computed(() => sortEntries(entries.value, settings.sortBy))
 
@@ -316,7 +275,7 @@ const columnStyle = computed(() =>
  */
 const folderStats = computed(() => {
   // hearts and views count everything inside, subfolders included (like the
-  // size); views is null where the server doesn't record them (dev mode)
+  // size); views is null if the listing has none
   const stats = { videos: 0, images: 0, folders: 0, size: 0, hearts: 0, views: null as number | null }
   for (const e of entries.value) {
     stats.size += e.size ?? 0
@@ -335,16 +294,12 @@ const { selected, show, close } = useLightbox()
 const lightboxEntries = computed(() => sortedEntries.value.filter(isMediaEntry))
 
 /**
- * The section shows (goon mode only; not in selection mode: picks belong to
- * the grid), with a placeholder while nothing here was played yet. Not in an
- * empty folder: its own message says enough
+ * The section shows (not in selection mode: picks belong to the grid), with a
+ * placeholder while nothing here was played yet. Not in an empty folder: its
+ * own message says enough
  */
 const showMostPlayed = computed(
-  () =>
-    recordsVideoData.value &&
-    mostPlayedLoaded.value &&
-    entries.value.length > 0 &&
-    !selecting.value,
+  () => mostPlayedLoaded.value && entries.value.length > 0 && !selecting.value,
 )
 
 const settingsOpen = ref(false)
@@ -374,7 +329,8 @@ const stopCompressWatch = onCompressFolderChanged((folder) => {
 })
 
 watch(selected, (entry) => {
-  if (!entry?.compressed_new) return
+  // dev mode: the banner stays (src/appMode.ts)
+  if (!entry?.compressed_new || !recordsVideoData.value) return
   // every card of the file (grid, "Most played", "Hearted") loses it
   const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
     (e) => e.path === entry.path,
@@ -606,6 +562,8 @@ async function onViewed(entry: Entry) {
 }
 
 async function toggleFavorite(entry: Entry, on: boolean) {
+  // dev mode: hearts aren't changed (src/appMode.ts)
+  if (!recordsVideoData.value) return
   // the same file can have a card in the grid, "Most played" and "Hearted": all change
   const copies = [entry, ...entries.value, ...mostPlayed.value, ...hearted.value, ...heartedPool].filter(
     (e) => e.path === entry.path,
@@ -748,69 +706,61 @@ onUnmounted(() => {
       <p>{{ EMPTY_FOLDER_TEXT }}</p>
     </div>
 
-    <!-- the most played videos and photos of this folder and its subfolders.
-         Switching the app mode makes it grow in / shrink away (no-anim: at once) -->
-    <Transition
-      :name="modeSwitching ? 'mode-section' : 'no-anim'"
-      @before-leave="onMostPlayedLeaving"
-      @after-leave="onMostPlayedLeft"
-      @after-enter="modeSwitching = false"
-    >
-      <section v-if="showMostPlayed" class="most-played">
-        <div class="most-played-inner">
-          <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
-          <p v-if="mostPlayed.length === 0" class="most-played-empty">
-            {{ MOST_PLAYED_EMPTY_TEXT }}
-          </p>
-          <div v-else class="grid">
-            <GalleryCard
-              v-for="entry in mostPlayed"
-              :key="mostPlayedKey(entry)"
-              :status-key="mostPlayedKey(entry)"
-              :entry="entry"
-              :selecting="false"
-              :selected="false"
-              link-only
-              views-only
-              @open="openFromMostPlayed"
-              @favorite="toggleFavorite"
-              @changed="refresh"
-            />
-          </div>
-
-          <!-- random hearted videos and photos of this folder and its subfolders -->
-          <template v-if="heartedLoaded && settings.heartedCount > 0">
-            <h2 class="section-title">{{ HEARTED_TITLE }}</h2>
-            <p v-if="hearted.length === 0" class="most-played-empty">
-              {{ HEARTED_EMPTY_TEXT }}
-            </p>
-            <div v-else class="grid hearted">
-              <!-- one slot per position: a swap shrinks the old card away, then
-                   grows the new one in its place (no wrapper: the cards stay
-                   the masonry grid's items) -->
-              <template v-for="(entry, i) in hearted" :key="i">
-                <Transition name="hearted-swap" mode="out-in">
-                  <GalleryCard
-                    :key="heartedKey(entry)"
-                    :status-key="heartedKey(entry)"
-                    :entry="entry"
-                    :selecting="false"
-                    :selected="false"
-                    link-only
-                    bare
-                    @open="openFromMostPlayed"
-                    @favorite="toggleFavorite"
-                    @changed="refresh"
-                  />
-                </Transition>
-              </template>
-            </div>
-          </template>
-
-          <h2 class="section-title">All</h2>
+    <!-- the most played videos and photos of this folder and its subfolders -->
+    <section v-if="showMostPlayed" class="most-played">
+      <div class="most-played-inner">
+        <h2 class="section-title">{{ MOST_PLAYED_TITLE }}</h2>
+        <p v-if="mostPlayed.length === 0" class="most-played-empty">
+          {{ MOST_PLAYED_EMPTY_TEXT }}
+        </p>
+        <div v-else class="grid">
+          <GalleryCard
+            v-for="entry in mostPlayed"
+            :key="mostPlayedKey(entry)"
+            :status-key="mostPlayedKey(entry)"
+            :entry="entry"
+            :selecting="false"
+            :selected="false"
+            link-only
+            views-only
+            @open="openFromMostPlayed"
+            @favorite="toggleFavorite"
+            @changed="refresh"
+          />
         </div>
-      </section>
-    </Transition>
+
+        <!-- random hearted videos and photos of this folder and its subfolders -->
+        <template v-if="heartedLoaded && settings.heartedCount > 0">
+          <h2 class="section-title">{{ HEARTED_TITLE }}</h2>
+          <p v-if="hearted.length === 0" class="most-played-empty">
+            {{ HEARTED_EMPTY_TEXT }}
+          </p>
+          <div v-else class="grid hearted">
+            <!-- one slot per position: a swap shrinks the old card away, then
+                 grows the new one in its place (no wrapper: the cards stay
+                 the masonry grid's items) -->
+            <template v-for="(entry, i) in hearted" :key="i">
+              <Transition name="hearted-swap" mode="out-in">
+                <GalleryCard
+                  :key="heartedKey(entry)"
+                  :status-key="heartedKey(entry)"
+                  :entry="entry"
+                  :selecting="false"
+                  :selected="false"
+                  link-only
+                  bare
+                  @open="openFromMostPlayed"
+                  @favorite="toggleFavorite"
+                  @changed="refresh"
+                />
+              </Transition>
+            </template>
+          </div>
+        </template>
+
+        <h2 class="section-title">All</h2>
+      </div>
+    </section>
 
     <div class="grid main-grid">
       <GalleryCard
@@ -941,42 +891,6 @@ onUnmounted(() => {
 
 .most-played-inner {
   min-height: 0;
-}
-
-/* switching the app mode: grows in from nothing and fades in, or the reverse;
-   the grid below slides along. Clipped only meanwhile (the cards' hover and
-   glow reach past the section otherwise) */
-.mode-section-enter-active,
-.mode-section-leave-active {
-  transition:
-    grid-template-rows 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
-    margin-bottom 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.3s ease;
-}
-
-.mode-section-enter-active .most-played-inner,
-.mode-section-leave-active .most-played-inner {
-  overflow: hidden;
-}
-
-.mode-section-enter-from,
-.mode-section-leave-to {
-  grid-template-rows: 0fr;
-  margin-bottom: 0;
-  opacity: 0;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mode-section-enter-active,
-  .mode-section-leave-active {
-    transition: opacity 0.2s;
-  }
-
-  .mode-section-enter-from,
-  .mode-section-leave-to {
-    grid-template-rows: 1fr;
-    margin-bottom: 0.5rem;
-  }
 }
 
 .section-title {

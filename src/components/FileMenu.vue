@@ -5,7 +5,6 @@ import EditDialog from '@/components/EditDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import { fileUrl, fixTs, queueCompress, trashFile } from '@/api'
-import { recordsVideoData } from '@/appMode'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { popupsGone } from '@/composables/usePopupOpen'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
@@ -216,8 +215,7 @@ const details = computed(() => {
   const list: MenuDetail[] = []
   if (props.entry.added) list.push({ label: 'Added', value: formatLongDate(props.entry.added) })
   // photos and videos are "viewed": shown / played in the viewer
-  // dev mode: not shown (src/appMode.ts)
-  if ((props.entry.kind === 'video' || props.entry.kind === 'image') && recordsVideoData.value) {
+  if (props.entry.kind === 'video' || props.entry.kind === 'image') {
     const last = props.entry.last_viewed
     list.push({
       label: 'Last viewed',

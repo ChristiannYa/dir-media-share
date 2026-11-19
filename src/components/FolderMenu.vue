@@ -5,7 +5,6 @@ import NewFolderDialog from '@/components/NewFolderDialog.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
 import UploadDialog from '@/components/UploadDialog.vue'
 import { clearCache, numberFiles } from '@/api'
-import { recordsVideoData } from '@/appMode'
 import { REVEAL_ENTRY_KEY } from '@/composables/useGallery'
 import {
   CLEAR_CACHE_CONFIRM,
@@ -52,17 +51,10 @@ const details = computed(() =>
   props.withDates
     ? [
         { label: 'Last added', value: props.lastAdded ? formatDate(props.lastAdded) : '—' },
-        // dev mode: not shown (src/appMode.ts)
-        ...(recordsVideoData.value
-          ? [
-              {
-                label: 'Last viewed',
-                value: props.lastViewed
-                  ? formatDateAgo(props.lastViewed, minuteClock.value)
-                  : 'Never',
-              },
-            ]
-          : []),
+        {
+          label: 'Last viewed',
+          value: props.lastViewed ? formatDateAgo(props.lastViewed, minuteClock.value) : 'Never',
+        },
       ]
     : undefined,
 )

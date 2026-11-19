@@ -1,7 +1,6 @@
 // The "Hearted" section of a folder: its hearted videos and photos
 // (subfolders included), in random order.
 
-import { isDevMode } from '../appMode.ts'
 import { favoritesIn } from '../favorites.ts'
 import { sendJson, type Handler } from '../http.ts'
 import { entryAt } from '../listing.ts'
@@ -16,7 +15,7 @@ const MAX_LIMIT = 100
  * inside the folder (subfolders included), shuffled, as listing entries.
  * Files that are gone are skipped.
  */
-export const hearted: Handler = async (req, res, url) => {
+export const hearted: Handler = async (_req, res, url) => {
   const rel = url.searchParams.get('path') ?? ''
   const limit = Math.min(MAX_LIMIT, Math.floor(Number(url.searchParams.get('limit')) || 0))
   if (limit <= 0 || !(await resolveDir(rel))) return sendJson(res, [])
@@ -27,7 +26,7 @@ export const hearted: Handler = async (req, res, url) => {
     const j = Math.floor(Math.random() * (i + 1))
     ;[candidates[i], candidates[j]] = [candidates[j]!, candidates[i]!]
   }
-  const options = { withVideoData: !isDevMode(req) }
+  const options = { withVideoData: true }
   const found: Entry[] = []
   // a batch at a time (videos are probed), until there are enough
   for (let i = 0; i < candidates.length && found.length < limit; i += limit) {

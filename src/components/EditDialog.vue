@@ -56,8 +56,10 @@ const viewsProblem = computed(() =>
     : 'Views must be a whole number, 0 or more',
 )
 const renamed = computed(() => newName.value.trim() !== savedName.value)
+/** Dev mode: never (the server refuses it, src/appMode.ts) */
 const viewsChanged = computed(
-  () => typeof views.value === 'number' && views.value !== savedViews.value,
+  () =>
+    recordsVideoData.value && typeof views.value === 'number' && views.value !== savedViews.value,
 )
 
 // ── Crop: fractions (0–1) of the picture as shown ──
@@ -368,8 +370,8 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           @keydown.enter.prevent="save"
         />
       </label>
-      <!-- dev mode: views aren't shown or changed (src/appMode.ts) -->
-      <label v-if="recordsVideoData" class="field views-field">
+      <!-- dev mode: shown, but can't be changed (src/appMode.ts) -->
+      <label class="field views-field">
         <span class="field-label">Views</span>
         <input
           v-model.number="views"
@@ -379,7 +381,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           step="1"
           inputmode="numeric"
           enterkeyhint="done"
-          :disabled="saving"
+          :disabled="saving || !recordsVideoData"
           @keydown.enter.prevent="save"
         />
       </label>

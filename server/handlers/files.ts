@@ -80,9 +80,11 @@ export const trashFile: Handler = async (_req, res, url) => {
 
 /**
  * POST /api/favorite?path=&on=1 (or 0) : adds or removes the heart of a video
- * or photo. Answers `{ favorite }`, the new state.
+ * or photo. Answers `{ favorite }`, the new state. Refused in dev mode
+ * (server/appMode.ts).
  */
-export const favoriteFile: Handler = async (_req, res, url) => {
+export const favoriteFile: Handler = async (req, res, url) => {
+  if (isDevMode(req)) return sendJson(res, { error: 'Hearts can only be changed in goon mode' }, 403)
   // kept by the path the listing shows (server/listing.ts looks it up the same way)
   const rel = url.searchParams.get('path') ?? ''
   if (!(await resolveFile(rel))) return sendStatus(res, 404)

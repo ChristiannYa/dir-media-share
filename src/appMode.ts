@@ -1,14 +1,14 @@
 // App mode, switched from the top bar:
 // - goon: the normal way. Watching records video data (plays, "last viewed",
-//   the most watched parts), and it all shows: view counts, the "Most
-//   played" sections, the heatmap over the slider, the menus' dates
-// - dev: for working on the app. Nothing is recorded and none of it shows.
-//   What was recorded before stays saved on the server, for goon mode
+//   the most watched parts), as do hearts and opening a compressed copy
+// - dev: for working on the app. Everything shows just like in goon mode
+//   (view counts, the "Most played" and "Hearted" sections, the heatmap over
+//   the slider, the menus' dates), but nothing is recorded
 // Each browser keeps its own (localStorage), so one device in dev mode doesn't
 // stop the others from counting. The server is told by a cookie
 // (APP_MODE_COOKIE), sent with every request: it refuses to record anything
-// for a device in dev mode and leaves the data out of its answers
-// (server/appMode.ts), so this holds even for a request the app sends anyway.
+// for a device in dev mode (server/appMode.ts), so this holds even for a
+// request the app sends anyway.
 
 import { computed, ref, watch } from 'vue'
 import { APP_MODE_COOKIE, APP_MODE_STORAGE_KEY } from '@/constants'
@@ -29,7 +29,7 @@ function readMode(): AppMode {
 /** This device's mode. Reactive */
 export const appMode = ref<AppMode>(readMode())
 
-/** True when video data (plays, last viewed, heatmap) is recorded and shown */
+/** True when data (plays, last viewed, heatmap, hearts, compressed copies seen) is recorded */
 export const recordsVideoData = computed(() => appMode.value === 'goon')
 
 export function toggleAppMode() {

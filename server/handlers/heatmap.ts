@@ -11,12 +11,12 @@ import { resolveFile } from '../paths.ts'
 
 /**
  * GET /api/heatmap?path= : `{ counts }`, how many times each part was watched
- * (null if never, and always in dev mode: server/appMode.ts)
+ * (null if never)
  */
-export const getHeatmap: Handler = async (req, res, url) => {
+export const getHeatmap: Handler = async (_req, res, url) => {
   // kept by the path the listing shows (like plays and views)
   const rel = url.searchParams.get('path') ?? ''
-  sendJson(res, { counts: isDevMode(req) ? null : heatmapOf(rel) })
+  sendJson(res, { counts: heatmapOf(rel) })
 }
 
 /**

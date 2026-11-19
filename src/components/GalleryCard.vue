@@ -93,7 +93,7 @@ function onContextMenu(e: MouseEvent) {
  * in the shared folder (.bin, src…): those add up nearly everything
  */
 const showFolderViews = computed(
-  () => recordsVideoData.value && !!props.entry.plays && props.entry.path.includes('/'),
+  () => !!props.entry.plays && props.entry.path.includes('/'),
 )
 
 /**
@@ -183,7 +183,8 @@ let tapTimer: ReturnType<typeof setTimeout> | undefined
 
 function onClick() {
   if (hold.consumeClick()) return // the press opened the menu
-  if (!isMediaEntry(props.entry) || props.selecting || props.linkOnly) {
+  // dev mode: no double tap to heart (src/appMode.ts), so a tap opens at once
+  if (!isMediaEntry(props.entry) || props.selecting || props.linkOnly || !recordsVideoData.value) {
     emit('open', props.entry)
     return
   }
@@ -738,7 +739,7 @@ watch(
         <StackBadge
           v-if="!viewsOnly"
           badge="plays"
-          :show="!selecting && recordsVideoData && !bare"
+          :show="!selecting && !bare"
         >
           <span
             class="info-badge plays-badge"
@@ -908,7 +909,7 @@ watch(
         <StackBadge
           v-if="!viewsOnly"
           badge="plays"
-          :show="!selecting && recordsVideoData && !bare"
+          :show="!selecting && !bare"
         >
           <span
             class="info-badge plays-badge"
@@ -921,10 +922,10 @@ watch(
         </StackBadge>
       </div>
       <!-- viewsOnly (the "Most played" section): just the views, bottom-right,
-           where the folder cards have theirs. Pops in / out like the app mode switches -->
+           where the folder cards have theirs -->
       <Transition name="mode-badge">
         <span
-          v-if="viewsOnly && !selecting && recordsVideoData && !bare"
+          v-if="viewsOnly && !selecting && !bare"
           class="info-badge plays-badge views-only"
           :class="badgeGlass"
           :title="`${playsLabel(entry.plays ?? 0)}, on every device`"

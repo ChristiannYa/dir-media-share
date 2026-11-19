@@ -3,6 +3,7 @@
 // them, deleting copies again, clearing the ended ones, and the "Compressed!"
 // / "Edited!" banner of copies not opened yet (server/compressedNew.ts).
 
+import { isDevMode } from '../appMode.ts'
 import { setCompressedSeen } from '../compressedNew.ts'
 import {
   cancelCompress,
@@ -122,9 +123,11 @@ export const clearCompressJobs: Handler = async (_req, res, url) => {
  * viewer: its card no longer shows the "Compressed!" banner, on any device.
  * If that was the last copy of the queue's list not opened yet (and nothing
  * is running), the list is cleared, so the top bar's button goes away.
- * Answers `{ seen }` (false if it had none).
+ * Answers `{ seen }` (false if it had none). Dev mode (server/appMode.ts):
+ * nothing is saved, and `{ seen: false }`.
  */
-export const compressedSeen: Handler = async (_req, res, url) => {
+export const compressedSeen: Handler = async (req, res, url) => {
+  if (isDevMode(req)) return sendJson(res, { seen: false })
   try {
     const rel = url.searchParams.get('path') ?? ''
     const seen = await setCompressedSeen(rel)

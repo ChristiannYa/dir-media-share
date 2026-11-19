@@ -1,7 +1,6 @@
 // The "Most played" section of a folder: its most played videos and photos,
 // or its most played subfolders.
 
-import { isDevMode } from '../appMode.ts'
 import { sendJson, type Handler } from '../http.ts'
 import { entryAt } from '../listing.ts'
 import { resolveDir } from '../paths.ts'
@@ -18,13 +17,13 @@ const MAX_LIMIT = 100
  *   (subfolders included) played most in the viewer
  * - folders: the `limit` folders directly inside it whose videos and photos
  *   (at any depth) were played most, all added up
- * Files and folders that are gone are skipped. Dev mode (server/appMode.ts): none.
+ * Files and folders that are gone are skipped.
  */
-export const mostPlayed: Handler = async (req, res, url) => {
+export const mostPlayed: Handler = async (_req, res, url) => {
   const rel = url.searchParams.get('path') ?? ''
   const limit = Math.min(MAX_LIMIT, Math.floor(Number(url.searchParams.get('limit')) || 0))
   const folders = url.searchParams.get('kind') === 'folders'
-  if (isDevMode(req) || limit <= 0 || !(await resolveDir(rel))) return sendJson(res, [])
+  if (limit <= 0 || !(await resolveDir(rel))) return sendJson(res, [])
 
   const candidates = (folders ? mostPlayedFolders(rel) : mostPlayedIn(rel)).map(([p]) => p)
   const wanted = (entry: Entry | null): entry is Entry =>
