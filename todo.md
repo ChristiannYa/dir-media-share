@@ -9,6 +9,8 @@
 - opening a video in a carousel/fullscreen should remove it from the `mip`
 - when editing and compressing at the same time in the same job, the compress
   should occur first and then the edit
+- `modify`ing a media that replaces the original should inherit the original's
+  metadata: love count, watch count, most viewed sections, and so on
 
 # Ui
 
@@ -34,8 +36,10 @@
 - add a "clear" button to items on the `mip`
 - add large pulsating red color around the screen when the lock timer is about
   to run out. it should show above everything, even fullscreen
-- add a time increase on the lock when clicking on it: right click on the clock
+- add a time increase on the lock when clicking on it: right click on the
+  clock
   should now show 2 options: lock and add time (prev featurei)
+- make `consts/compress.ts`'s a configurable value
 
 # Check if
 
