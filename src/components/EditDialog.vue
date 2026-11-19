@@ -4,6 +4,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 import { fileUrl, queueEdit, renameEntry, setPlays } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { pulseCompress } from '@/composables/useCompressQueue'
+import { PROMO_OUTROS, type PromoOutro } from '@/constants'
 import type { Entry } from '@/types'
 import { formatSize } from '@/utils/format'
 
@@ -182,7 +183,11 @@ function moveTrim(e: PointerEvent) {
   if (!trimming) return
   const t = timeAt(e)
   if (trimming === 'start') trim.start = clamp(t, 0, trim.end - MIN_LENGTH)
-  else trim.end = clamp(t, trim.start + MIN_LENGTH, duration.value)
+  else {
+    trim.end = clamp(t, trim.start + MIN_LENGTH, duration.value)
+    // the end was moved by hand: no longer an app's outro cut off
+    promo.value = null
+  }
   // show the frame the cut lands on
   seek(trimming === 'start' ? trim.start : trim.end)
 }
@@ -213,6 +218,41 @@ function togglePlay() {
   if (!v.paused) return v.pause()
   if (v.currentTime < trim.start || v.currentTime >= trim.end - 0.05) seek(trim.start)
   void v.play()
+}
+
+// ── Trim an app's outro (videos) ──
+
+/** The app whose logo outro is cut off the end (PROMO_OUTROS), if one is picked */
+const promo = ref<PromoOutro | null>(null)
+const PROMO_KEYS = Object.keys(PROMO_OUTROS) as PromoOutro[]
+
+/** What the "Trim" row says it does: "TikTok 4 s, Instagram 4 s" */
+const promoSummary = PROMO_KEYS.map((k) => `${PROMO_OUTROS[k].label} ${PROMO_OUTROS[k].secs} s`).join(
+  ', ',
+)
+
+/** The video is long enough for that outro to be cut off and something kept */
+function promoFits(key: PromoOutro): boolean {
+  return duration.value - PROMO_OUTROS[key].secs >= trim.start + MIN_LENGTH
+}
+
+/**
+ * Picks the app: the end of the part kept moves to its outro's start (the
+ * trim bar shows it, and the frame there is shown). Picking it again puts the
+ * end back where the video ends
+ */
+function pickPromo(key: PromoOutro) {
+  if (saving.value) return
+  video.value?.pause()
+  if (promo.value === key) {
+    promo.value = null
+    trim.end = duration.value
+  } else {
+    if (!promoFits(key)) return
+    promo.value = key
+    trim.end = duration.value - PROMO_OUTROS[key].secs
+  }
+  seek(trim.end)
 }
 
 function formatTime(s: number): string {
@@ -246,6 +286,7 @@ const compressAfter = ref(false)
 
 function reset() {
   Object.assign(crop, { x: 0, y: 0, w: 1, h: 1 })
+  promo.value = null
   trim.start = 0
   trim.end = duration.value
   newName.value = savedName.value
@@ -431,6 +472,30 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
         <span>{{ formatTime(trim.start) }}</span>
         <span>{{ formatTime(trim.end - trim.start) }} kept</span>
         <span>{{ formatTime(trim.end) }}</span>
+      </div>
+
+      <!-- cut off the logo outro an app adds to its downloads: moves the end
+           of the part kept (the yellow handle) back by that many seconds -->
+      <div class="promo">
+        <span class="check-text">
+          <span class="check-title">Trim</span>
+          <small>The app's logo outro at the end of a downloaded video ({{ promoSummary }})</small>
+        </span>
+        <div class="promo-options" role="group" aria-label="Trim the outro of">
+          <button
+            v-for="key in PROMO_KEYS"
+            :key="key"
+            type="button"
+            class="promo-option"
+            :class="{ active: promo === key }"
+            :aria-pressed="promo === key"
+            :disabled="saving || (promo !== key && !promoFits(key))"
+            :title="`Cut the last ${PROMO_OUTROS[key].secs} s (${PROMO_OUTROS[key].label}'s outro)`"
+            @click="pickPromo(key)"
+          >
+            {{ PROMO_OUTROS[key].label }}
+          </button>
+        </div>
       </div>
     </template>
 
@@ -712,6 +777,56 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
   color: #aaa;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── "Trim: TikTok | Instagram": laid out like the checkbox row below, with a
+   two-way switch in the inputs' style (dark fill, the edge; the primary
+   button's blue for the one picked) ── */
+.promo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.promo-options {
+  flex: none;
+  display: flex;
+  padding: 2px;
+  border: 1px solid var(--edge);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.promo-option {
+  padding: 0.35rem 0.7rem;
+  border: none;
+  border-radius: calc(0.6rem - 2px);
+  background: none;
+  color: #bbb;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
+}
+
+.promo-option:hover:not(:disabled):not(.active) {
+  color: #fff;
+}
+
+.promo-option.active {
+  background: #2d6cdf;
+  color: #fff;
+}
+
+.promo-option:focus-visible {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 1px;
+}
+
+.promo-option:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* ── "Compress it too": a checkbox in the inputs' style (dark fill, the edge,

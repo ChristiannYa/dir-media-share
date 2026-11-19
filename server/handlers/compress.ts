@@ -7,6 +7,7 @@ import { setCompressedSeen } from '../compressedNew.ts'
 import {
   cancelCompress,
   clearEndedCompress,
+  clearIfAllSeen,
   compressJobs,
   discardCompressJob,
   enqueueCompress,
@@ -119,11 +120,16 @@ export const clearCompressJobs: Handler = async (_req, res, url) => {
 /**
  * POST /api/compress/seen?path= : the compressed copy was opened in the
  * viewer: its card no longer shows the "Compressed!" banner, on any device.
+ * If that was the last copy of the queue's list not opened yet (and nothing
+ * is running), the list is cleared, so the top bar's button goes away.
  * Answers `{ seen }` (false if it had none).
  */
 export const compressedSeen: Handler = async (_req, res, url) => {
   try {
-    sendJson(res, { seen: await setCompressedSeen(url.searchParams.get('path') ?? '') })
+    const rel = url.searchParams.get('path') ?? ''
+    const seen = await setCompressedSeen(rel)
+    if (seen) clearIfAllSeen(rel)
+    sendJson(res, { seen })
   } catch (e) {
     console.error('Saving the new compressed copies failed:', e)
     sendJson(res, { error: 'It could not be saved' }, 500)

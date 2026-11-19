@@ -35,7 +35,7 @@ import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { mkdir, readdir, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { markCompressedNew, setCompressedSeen } from './compressedNew.ts'
+import { isCompressedNew, markCompressedNew, setCompressedSeen } from './compressedNew.ts'
 import { COMPRESS_QUEUE_FILE } from './consts/server.ts'
 import { hideCopy, unhideCopy } from './hiddenCopies.ts'
 import { keepAwake, touchActivity } from './idle.ts'
@@ -675,6 +675,22 @@ export async function discardCompressJob(id: string): Promise<CompressJob> {
   announce(job)
   save()
   return job
+}
+
+/**
+ * The copy `rel` was just opened in the viewer (its "Compressed!" / "Edited!"
+ * badge gone). If it's one the list saved, nothing is waiting or running any
+ * more, and every copy the list saved has been opened, the list is cleared,
+ * like "Clear ended" (ended jobs without a copy go too): the top bar's button
+ * goes away on every device. Returns how many jobs were removed
+ */
+export function clearIfAllSeen(rel: string): number {
+  const jobs = compressJobs()
+  if (jobs.some(isActive)) return 0
+  const copies = jobs.filter((j) => j.state === 'done' && j.copyPath)
+  if (!copies.some((j) => j.copyPath === rel)) return 0
+  if (copies.some((j) => isCompressedNew(j.copyPath!))) return 0
+  return clearEndedCompress()
 }
 
 /** Removes the ended jobs of `folder` (all folders if undefined) from the list. Returns how many */

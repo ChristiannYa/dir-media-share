@@ -400,6 +400,17 @@ export const COMPRESSIBLE_EXTENSIONS: readonly string[] = ['mp4', 'm4v', 'mov', 
 export const COMPRESSIBLE_IMAGE_EXTENSIONS: readonly string[] = ['jpg', 'jpeg', 'png', 'webp']
 /** File menu item that opens the edit dialog (trim a video's ends, crop the edges) */
 export const EDIT_LABEL = 'Edit'
+/**
+ * The logo outro (sound and animation) an app adds to the end of a video
+ * downloaded from it: the edit dialog's "Trim" buttons cut its last `secs`
+ * off. The apps don't publish these lengths; 4 s each is what downloads show.
+ * If one cuts too much or too little, change it here
+ */
+export const PROMO_OUTROS = {
+  tiktok: { label: 'TikTok', secs: 4.13 },
+  instagram: { label: 'Instagram', secs: 4.162 },
+} as const satisfies Record<string, { label: string; secs: number }>
+export type PromoOutro = keyof typeof PROMO_OUTROS
 /** Added to the name of an edited copy: "photo.jpg" → "photo_edited.jpg" (server/consts/edit.ts) */
 export const EDITED_SUFFIX = '_edited'
 /** Photo extensions the server can crop into a copy of the same format (server/media/editMedia.ts) */
