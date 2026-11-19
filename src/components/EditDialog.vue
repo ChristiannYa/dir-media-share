@@ -227,9 +227,9 @@ const promo = ref<PromoOutro | null>(null)
 const PROMO_KEYS = Object.keys(PROMO_OUTROS) as PromoOutro[]
 
 /** What the "Trim" row says it does: "TikTok 4 s, Instagram 4 s" */
-const promoSummary = PROMO_KEYS.map((k) => `${PROMO_OUTROS[k].label} ${PROMO_OUTROS[k].secs} s`).join(
-  ', ',
-)
+const promoSummary = PROMO_KEYS.map(
+  (k) => `${PROMO_OUTROS[k].label} ${PROMO_OUTROS[k].secs} s`,
+).join(', ')
 
 /** The video is long enough for that outro to be cut off and something kept */
 function promoFits(key: PromoOutro): boolean {
@@ -262,12 +262,8 @@ function formatTime(s: number): string {
 
 // ── Saving ──
 
-const cropped = computed(
-  () => crop.x > 0.001 || crop.y > 0.001 || crop.w < 0.999 || crop.h < 0.999,
-)
-const trimmed = computed(
-  () => isVideo && (trim.start > 0.05 || trim.end < duration.value - 0.05),
-)
+const cropped = computed(() => crop.x > 0.001 || crop.y > 0.001 || crop.w < 0.999 || crop.h < 0.999)
+const trimmed = computed(() => isVideo && (trim.start > 0.05 || trim.end < duration.value - 0.05))
 /** A copy is made (trim / crop) */
 const makesCopy = computed(() => cropped.value || trimmed.value)
 const hasChanges = computed(() => makesCopy.value || renamed.value || viewsChanged.value)
@@ -479,7 +475,6 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
       <div class="promo">
         <span class="check-text">
           <span class="check-title">Trim</span>
-          <small>The app's logo outro at the end of a downloaded video ({{ promoSummary }})</small>
         </span>
         <div class="promo-options" role="group" aria-label="Trim the outro of">
           <button
@@ -511,16 +506,10 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           <!-- the size of the file being edited, as it is now -->
           <span v-if="entry.size" class="check-size">{{ formatSize(entry.size) }}</span>
         </span>
-        <small>Once the copy is made, like Compress does; only the compressed one is kept</small>
       </span>
     </label>
 
     <p v-if="error" class="error">{{ error }}</p>
-    <p v-else class="hint">
-      The name and views change this file. Trimming or cropping saves a new file ending in
-      “_edited” next to it, in the background (its progress is in the top bar), so this file
-      stays as it is.
-    </p>
 
     <div class="actions">
       <button class="button" :disabled="saving || !hasChanges" @click="reset">Reset</button>
