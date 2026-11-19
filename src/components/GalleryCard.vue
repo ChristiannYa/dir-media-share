@@ -623,6 +623,25 @@ watch(
           </span>
         </StackBadge>
         <div ref="rowEl" class="badge-row" />
+        <!-- the views of everything inside, and below them how long it was
+             watched (under .bin only): in the metadata row, styled like the
+             folder's other metadata (its counts and size, below) -->
+        <StackBadge badge="plays" :show="showFolderViews || showFolderWatched">
+          <div class="plays-stack">
+            <span
+              v-if="showFolderViews"
+              class="badge-glass folder-badge"
+              :title="`${playsLabel(entry.plays ?? 0)} of what's inside, on every device`"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
+              {{ entry.plays }}
+            </span>
+            <span v-if="showFolderWatched" class="badge-glass folder-badge" :title="watchedTitle">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
+              {{ watchedText }}
+            </span>
+          </div>
+        </StackBadge>
       </div>
       <!-- its preview hasn't played yet: the still shows blurred, low
            quality, until the sweep below takes over and reveals the preview
@@ -647,30 +666,15 @@ watch(
       </div>
       <!-- its dates (last added, last viewed) are in its menu (right-click / hold) -->
       <!-- bottom row: what's inside and its size, on the right -->
-      <!-- not there at all when the folder has nothing to count (empty, or only empty subfolders) -->
+      <!-- not there at all when the folder has nothing to count (empty, or only empty subfolders),
+           nor in the "Most played" sections (the views are top-left there too) -->
       <div
-        v-if="
-          viewsOnly
-            ? showFolderViews || showFolderWatched
-            : entry.video_count ||
-              entry.image_count ||
-              showFolderViews ||
-              showFolderWatched ||
-              entry.size
-        "
+        v-if="!viewsOnly && (entry.video_count || entry.image_count || entry.size)"
         class="folder-badges"
       >
-        <!-- videos / images inside (subfolders included), views and total size; zero
-             counts are hidden. viewsOnly: just the views -->
-        <span
-          v-if="
-            viewsOnly
-              ? showFolderViews
-              : entry.video_count || entry.image_count || showFolderViews || entry.size
-          "
-          class="badge-glass folder-badge folder-contents"
-        >
-          <span v-if="entry.video_count && !viewsOnly" class="count" title="Videos">
+        <!-- videos / images inside (subfolders included) and total size; zero counts are hidden -->
+        <span class="badge-glass folder-badge folder-contents">
+          <span v-if="entry.video_count" class="count" title="Videos">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
                 d="M17 10.5V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5l4 4v-11l-4 4z"
@@ -678,7 +682,7 @@ watch(
             </svg>
             {{ entry.video_count }}
           </span>
-          <span v-if="entry.image_count && !viewsOnly" class="count" title="Images">
+          <span v-if="entry.image_count" class="count" title="Images">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
                 d="M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2zM8.5 13.5l2.5 3 3.5-4.5 4.5 6H5l3.5-4.5z"
@@ -686,18 +690,7 @@ watch(
             </svg>
             {{ entry.image_count }}
           </span>
-          <!-- slides open / shut when the app mode switches -->
-          <Transition name="mode-count">
-            <span
-              v-if="showFolderViews"
-              class="count"
-              :title="`${playsLabel(entry.plays ?? 0)} of what's inside, on every device`"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_EYE" /></svg>
-              {{ entry.plays }}
-            </span>
-          </Transition>
-          <span v-if="entry.size && !viewsOnly" class="count" title="Total size">
+          <span v-if="entry.size" class="count" title="Total size">
             <!-- hard drive -->
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path
@@ -706,15 +699,6 @@ watch(
             </svg>
             {{ formatSize(entry.size) }}
           </span>
-        </span>
-        <!-- below the views: how long what's inside was watched (under .bin only) -->
-        <span
-          v-if="showFolderWatched"
-          class="badge-glass folder-badge folder-watched"
-          :title="watchedTitle"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path :d="ICON_CLOCK" /></svg>
-          {{ watchedText }}
         </span>
       </div>
       <!-- the name, on the bottom of the preview over a band of blur (.force-glass:
@@ -813,7 +797,7 @@ watch(
         <span class="sweep-frost force-glass" />
       </div>
       <!-- viewsOnly: just how many times it was shown, and for how long below
-           it, bottom-right like a folder's -->
+           it, bottom-right -->
       <div v-if="viewsOnly && !bare" class="views-only-badges">
         <span
           class="info-badge plays-badge"
@@ -985,7 +969,7 @@ watch(
         </StackBadge>
       </div>
       <!-- viewsOnly (the "Most played" section): just the views and the time
-           watched below them, bottom-right, where the folder cards have theirs -->
+           watched below them, bottom-right -->
       <Transition name="mode-badge">
         <div v-if="viewsOnly && !selecting && !bare" class="views-only-badges">
           <span
@@ -1499,22 +1483,17 @@ watch(
 }
 
 /* bottom row of a folder card: its contents, on the right (its dates are in
-   its menu) */
-/* the counts pill, and the time watched below it, on the right */
+   its menu; its views and time watched are in the top-left stack) */
 .folder-badges {
   position: absolute;
   bottom: var(--badge-inset);
   left: var(--badge-inset);
   right: var(--badge-inset);
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-wrap: wrap-reverse;
+  align-items: center;
   gap: 0.3rem;
   pointer-events: none;
-}
-
-.folder-watched {
-  font-variant-numeric: tabular-nums;
 }
 
 /* above the name band, on the cards that have one (not "Most played") */
@@ -1863,9 +1842,9 @@ watch(
   filter: brightness(0.9);
 }
 
-/* the "Most played" section: just the views and the time watched under them,
-   nothing else on the preview, so bottom-right, like the folder cards there
-   (elsewhere they're in the top-left stack, above) */
+/* the "Most played" section's photos and videos: just the views and the time
+   watched under them, nothing else on the preview, so bottom-right (elsewhere,
+   and on folder cards everywhere, they're in the top-left stack, above) */
 .views-only-badges {
   position: absolute;
   bottom: var(--badge-inset);
@@ -1892,44 +1871,15 @@ watch(
   transform: scale(0.6);
 }
 
-/* a folder's views, in the row with its counts: opens to its width (and back),
-   so the counts beside it slide along instead of jumping */
-.mode-count-enter-active,
-.mode-count-leave-active {
-  overflow: hidden;
-  transition:
-    max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
-    opacity 0.25s ease;
-}
-
-.mode-count-enter-from,
-.mode-count-leave-to {
-  max-width: 0;
-  opacity: 0;
-}
-
-.mode-count-enter-to,
-.mode-count-leave-from {
-  /* wider than any count: the most it opens to */
-  max-width: 5rem;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .mode-badge-enter-active,
-  .mode-badge-leave-active,
-  .mode-count-enter-active,
-  .mode-count-leave-active {
+  .mode-badge-leave-active {
     transition: opacity 0.2s;
   }
 
   .mode-badge-enter-from,
   .mode-badge-leave-to {
     transform: none;
-  }
-
-  .mode-count-enter-from,
-  .mode-count-leave-to {
-    max-width: 5rem;
   }
 }
 

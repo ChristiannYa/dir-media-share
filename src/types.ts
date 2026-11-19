@@ -130,6 +130,21 @@ export interface MenuDetail {
   note?: string
 }
 
+/**
+ * A mini section under a menu's facts (CardMenu): one fact that is always
+ * shown, in its place, and under it a list of dates that opens and closes
+ */
+export interface MenuHistory {
+  /** Always shown, whether the list is open or not, e.g. "Last viewed" */
+  fact: MenuDetail
+  /** Text of the button that opens / closes the list, e.g. "All views" */
+  listLabel: string
+  /** Shown instead of the list while it has no dates */
+  emptyText: string
+  /** The dates (already written out), newest first; asked when the list is opened */
+  load: () => Promise<string[]>
+}
+
 /** One action in a card's or folder's menu (CardMenu) */
 export interface MenuItem {
   label: string

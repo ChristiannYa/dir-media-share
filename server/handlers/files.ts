@@ -25,6 +25,7 @@ import { folderPart, movePreviews, type PreviewMove } from '../previewNames.ts'
 import { countPlay, forgetPlays, movePlays, setPlayCount } from '../plays.ts'
 import { moveToTrash } from '../trash.ts'
 import { forgetView, markViewed, moveViews } from '../views.ts'
+import { addViewLog, forgetViewLog, moveViewLog, viewLogOf } from '../viewLog.ts'
 import { addWatchTime, forgetWatchTime, moveWatchTime, setWatchTime } from '../watchTime.ts'
 import { WATCH_TIME_MAX_ADD_MS, WATCH_TIME_MAX_SET_MS } from '../consts/server.ts'
 
@@ -74,6 +75,9 @@ export const trashFile: Handler = async (_req, res, url) => {
   await forgetWatchTime(url.searchParams.get('path') ?? '').catch((e) =>
     console.error('Updating the time watched failed:', e),
   )
+  await forgetViewLog(url.searchParams.get('path') ?? '').catch((e) =>
+    console.error('Updating the view log failed:', e),
+  )
   await forgetHeatmap(url.searchParams.get('path') ?? '').catch((e) =>
     console.error('Updating the heatmaps failed:', e),
   )
@@ -118,11 +122,24 @@ export const viewedFile: Handler = async (req, res, url) => {
   if (!file || !isMediaName(path.basename(file))) return sendStatus(res, 404)
   try {
     const viewed = await markViewed(rel)
+    await addViewLog(rel, viewed)
     sendJson(res, { viewed, plays: await countPlay(rel) })
   } catch (e) {
     console.error('Saving the views failed:', e)
     sendJson(res, { error: 'The view could not be saved' }, 500)
   }
+}
+
+/**
+ * GET /api/view-log?path= : `{ views }`, every moment the video / photo counted
+ * as a view, newest first (server/viewLog.ts); empty if none was logged
+ */
+export const viewLog: Handler = async (_req, res, url) => {
+  // kept by the path the listing shows (server/listing.ts looks it up the same way)
+  const rel = url.searchParams.get('path') ?? ''
+  const file = await resolveFile(rel)
+  if (!file || !isMediaName(path.basename(file))) return sendStatus(res, 404)
+  sendJson(res, { views: viewLogOf(rel) })
 }
 
 /**
@@ -183,7 +200,8 @@ const MAX_PLAYS = 1_000_000
  * POST /api/plays?path=&count= : sets how many times a video / photo was
  * viewed (the metadata dialog), on every device (server/plays.ts). Answers `{ plays }`.
  * Setting 0 also sets its own "last viewed" back to never (server/views.ts; the
- * folders above it keep theirs, as when a file is trashed).
+ * folders above it keep theirs, as when a file is trashed) and clears its log
+ * of view dates (server/viewLog.ts).
  * Refused in dev mode (server/appMode.ts).
  */
 export const setPlays: Handler = async (req, res, url) => {
@@ -198,8 +216,11 @@ export const setPlays: Handler = async (req, res, url) => {
   }
   try {
     await setPlayCount(rel, count)
-    // never viewed: no "last viewed" either
-    if (count === 0) await forgetView(rel)
+    // never viewed: no "last viewed", and no dates of views, either
+    if (count === 0) {
+      await forgetView(rel)
+      await forgetViewLog(rel)
+    }
   } catch (e) {
     console.error('Saving the play counts failed:', e)
     return sendJson(res, { error: 'The views could not be saved' }, 500)
@@ -249,6 +270,9 @@ export const moveFile: Handler = async (_req, res, url) => {
   )
   await moveWatchTime([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
     console.error('Updating the time watched failed:', e),
+  )
+  await moveViewLog([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
+    console.error('Updating the view log failed:', e),
   )
   await moveHeatmaps([[fromRel, toDir ? `${toDir}/${name}` : name]]).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
@@ -483,6 +507,9 @@ export const numberFiles: Handler = async (_req, res, url) => {
   await moveWatchTime(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
     console.error('Updating the time watched failed:', e),
   )
+  await moveViewLog(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
+    console.error('Updating the view log failed:', e),
+  )
   await moveHeatmaps(moving.map((p) => [relOf(p.from), relOf(p.to)])).catch((e) =>
     console.error('Updating the heatmaps failed:', e),
   )
@@ -569,6 +596,9 @@ export const renameEntry: Handler = async (_req, res, url) => {
   )
   await moveWatchTime([[rel, newRel]]).catch((e) =>
     console.error('Updating the time watched failed:', e),
+  )
+  await moveViewLog([[rel, newRel]]).catch((e) =>
+    console.error('Updating the view log failed:', e),
   )
   await moveHeatmaps([[rel, newRel]]).catch((e) =>
     console.error('Updating the heatmaps failed:', e),

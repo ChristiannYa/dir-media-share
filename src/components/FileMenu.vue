@@ -5,7 +5,7 @@ import EditDialog from '@/components/EditDialog.vue'
 import MetadataDialog from '@/components/MetadataDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
-import { fileUrl, fixTs, queueCompress, trashFile } from '@/api'
+import { fetchViewLog, fileUrl, fixTs, queueCompress, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { popupsGone } from '@/composables/usePopupOpen'
@@ -31,12 +31,12 @@ import {
   ICON_SELECT,
   ICON_TRASH,
 } from '@/icons'
-import type { Entry, MenuDetail, MenuItem } from '@/types'
+import type { Entry, MenuDetail, MenuHistory, MenuItem } from '@/types'
 import { downloadFile } from '@/utils/download'
 import { puffAway } from '@/utils/puff'
 import { isCompressible, isEditable } from '@/utils/entry'
 import { minuteClock } from '@/utils/clock'
-import { formatAgo, formatLongDate, formatSize, formatWatched } from '@/utils/format'
+import { formatAgo, formatDate, formatLongDate, formatSize, formatWatched } from '@/utils/format'
 
 /**
  * Menu of a video / image / file card: its dates, then icon buttons to fix,
@@ -236,25 +236,47 @@ const menuItems = computed<MenuItem[]>(() => [
   ...(isMedia ? [metadataItem.value] : []),
 ])
 
-/** Its dates, at the top of the menu (they're no longer on the card) */
+/** When it was added, at the top of the menu (it's no longer on the card) */
 const details = computed(() => {
   const list: MenuDetail[] = []
   if (props.entry.added) list.push({ label: 'Added', value: formatLongDate(props.entry.added) })
-  // photos and videos are "viewed": shown / played in the viewer
-  if (props.entry.kind === 'video' || props.entry.kind === 'image') {
-    const last = props.entry.last_viewed
-    list.push({
+  return list
+})
+
+/**
+ * Photos and videos are "viewed": shown / played in the viewer. How often and
+ * for how long, on every device (what the "Most played" and "Most watch time"
+ * sections go by), under the mini section (`history`)
+ */
+const moreDetails = computed(() => {
+  const list: MenuDetail[] = []
+  if (isMedia) {
+    list.push({ label: 'Views', value: String(props.entry.plays ?? 0) })
+    list.push({ label: 'Time watched', value: formatWatched(props.entry.watched_ms ?? 0) })
+  }
+  return list
+})
+
+/**
+ * The mini section under "Added" (photos and videos): "Last viewed", which stays
+ * in its place, and a list that opens under it with every moment a view
+ * counted (the "+1"), newest first. Views from before the dates were kept
+ * aren't in the list
+ */
+const history = computed<MenuHistory | undefined>(() => {
+  if (!isMedia) return undefined
+  const last = props.entry.last_viewed
+  return {
+    fact: {
       label: 'Last viewed',
       value: last ? formatLongDate(last) : 'Never',
       // how long ago, on its own line under the date
       note: last ? formatAgo(last, minuteClock.value) : undefined,
-    })
-    // how often, on every device (what the "Most played" sections go by)
-    const plays = props.entry.plays ?? 0
-    list.push({ label: 'Views', value: String(plays) })
-    list.push({ label: 'Time watched', value: formatWatched(props.entry.watched_ms ?? 0) })
+    },
+    listLabel: 'All views',
+    emptyText: 'No dates were kept yet',
+    load: async () => (await fetchViewLog(props.entry.path)).map((at) => formatDate(at)),
   }
-  return list
 })
 
 function onMoved() {
@@ -271,6 +293,8 @@ function onMoved() {
     :title="entry.name"
     :subtitle="entry.size ? formatSize(entry.size) : undefined"
     :details="details"
+    :history="history"
+    :more-details="moreDetails"
   />
   <RenameDialog
     v-if="renaming"

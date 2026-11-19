@@ -84,6 +84,11 @@ export const COMPRESS_QUEUE_FILE = path.join(DATA_DIR, 'compress-queue.json')
  */
 export const VIEWS_FILE = path.join(DATA_DIR, 'views.json')
 /**
+ * Every moment each video / photo counted as a view, oldest first
+ * (server/viewLog.ts): path → [ms since 1970…]. Shared by every device.
+ */
+export const VIEW_LOG_FILE = path.join(DATA_DIR, 'view-log.json')
+/**
  * How many times each video was played in the viewer, or each photo shown
  * there (server/plays.ts): path → count. Shared by every device; the folders'
  * "Most played" sections come from it.

@@ -192,6 +192,8 @@ export const API = {
   setPlays: '/api/plays',
   /** A video was played in the viewer: it and its folders get "last viewed" = now, and one more play (POST): ?path= */
   viewed: '/api/viewed',
+  /** Every moment a video / photo counted as a view, newest first: GET ?path= : { views: number[] } */
+  viewLog: '/api/view-log',
   /** A video was watched / photo shown for a while: adds that time to its time watched (POST): ?path=&ms= */
   watchTime: '/api/watch-time',
   /** Sets how long a video / photo was watched (POST): ?path=&ms= */

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
+import { ICON_CHEVRON } from '@/icons'
 import { settings } from '@/settings'
-import type { MenuDetail, MenuItem } from '@/types'
+import type { MenuDetail, MenuHistory, MenuItem } from '@/types'
 
 /**
  * Popup of actions for a card or folder. It has no button of its own: the
@@ -16,6 +17,13 @@ const props = defineProps<{
   subtitle?: string
   /** Facts shown above the actions, e.g. dates ("Added", "Last viewed") */
   details?: MenuDetail[]
+  /**
+   * A mini section under the facts: one fact that stays in its place, and a
+   * list of dates under it that opens and closes (loaded when it's opened)
+   */
+  history?: MenuHistory
+  /** More facts, under the mini section (or under `details` when there's none) */
+  moreDetails?: MenuDetail[]
   /**
    * Buttons show only their icon (the label is the tooltip and the
    * screen-reader name; descriptions aren't shown). While an action runs or
@@ -50,12 +58,43 @@ const running = ref<MenuItem | null>(null)
 const status = ref<{ item: MenuItem; text: string; failed: boolean } | null>(null)
 let statusTimer: ReturnType<typeof setTimeout> | undefined
 
+// ── The mini section's list of dates ──
+
+const historyOpen = ref(false)
+/** The dates, once loaded (null: not asked yet, or it failed) */
+const historyDates = ref<string[] | null>(null)
+const historyLoading = ref(false)
+const historyFailed = ref(false)
+
+/** Opens the list (asking for the dates each time, so they're current) or closes it */
+async function toggleHistory() {
+  if (historyOpen.value) {
+    historyOpen.value = false
+    return
+  }
+  const history = props.history
+  if (!history) return
+  historyOpen.value = true
+  historyLoading.value = true
+  historyFailed.value = false
+  try {
+    historyDates.value = await history.load()
+  } catch {
+    historyDates.value = null
+    historyFailed.value = true
+  } finally {
+    historyLoading.value = false
+  }
+}
+
 function close() {
   if (running.value) return
   clearTimeout(statusTimer)
   open.value = false
   confirming.value = null
   status.value = null
+  historyOpen.value = false
+  historyDates.value = null
 }
 
 function pick(item: MenuItem) {
@@ -129,15 +168,58 @@ onUnmounted(() => clearTimeout(statusTimer))
     </div>
 
     <!-- Facts about it (dates), above the actions -->
-    <dl v-if="!confirming && details?.length" class="details">
-      <template v-for="d in details" :key="d.label">
-        <dt>{{ d.label }}</dt>
-        <dd>
-          {{ d.value }}
-          <span v-if="d.note" class="detail-note">{{ d.note }}</span>
-        </dd>
-      </template>
-    </dl>
+    <div v-if="!confirming && (details?.length || history || moreDetails?.length)" class="facts">
+      <dl v-if="details?.length" class="details part">
+        <template v-for="d in details" :key="d.label">
+          <dt>{{ d.label }}</dt>
+          <dd>
+            {{ d.value }}
+            <span v-if="d.note" class="detail-note">{{ d.note }}</span>
+          </dd>
+        </template>
+      </dl>
+
+      <!-- mini section: its fact stays where it is; the list of dates under it opens and closes -->
+      <section v-if="history" class="history part">
+        <dl class="details">
+          <dt>{{ history.fact.label }}</dt>
+          <dd>
+            {{ history.fact.value }}
+            <span v-if="history.fact.note" class="detail-note">{{ history.fact.note }}</span>
+          </dd>
+        </dl>
+        <button
+          type="button"
+          class="history-toggle"
+          :aria-expanded="historyOpen"
+          @click="toggleHistory"
+        >
+          <svg class="chevron" :class="{ open: historyOpen }" viewBox="0 0 24 24" aria-hidden="true">
+            <path :d="ICON_CHEVRON" />
+          </svg>
+          {{ history.listLabel }}
+          <span v-if="historyDates" class="history-count">{{ historyDates.length }}</span>
+        </button>
+        <div v-if="historyOpen" class="history-list">
+          <p v-if="historyLoading" class="history-note">Loading…</p>
+          <p v-else-if="historyFailed" class="history-note">The dates could not be loaded</p>
+          <p v-else-if="!historyDates?.length" class="history-note">{{ history.emptyText }}</p>
+          <ul v-else>
+            <li v-for="(date, i) in historyDates" :key="i">{{ date }}</li>
+          </ul>
+        </div>
+      </section>
+
+      <dl v-if="moreDetails?.length" class="details part">
+        <template v-for="d in moreDetails" :key="d.label">
+          <dt>{{ d.label }}</dt>
+          <dd>
+            {{ d.value }}
+            <span v-if="d.note" class="detail-note">{{ d.note }}</span>
+          </dd>
+        </template>
+      </dl>
+    </div>
 
     <!-- The actions -->
     <div v-if="!confirming" class="menu-list">
@@ -189,16 +271,20 @@ onUnmounted(() => clearTimeout(statusTimer))
 
 <style scoped>
 /* ── Facts (dates) ── */
-.details {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.3rem 0.9rem;
+.facts {
   margin: 0 0 0.75rem;
   padding: 0.65rem 0.85rem;
   border: 1px solid var(--edge-soft);
   border-radius: 0.8rem;
   background: rgba(255, 255, 255, 0.025);
   font-size: 0.8rem;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.3rem 0.9rem;
+  margin: 0;
 }
 
 .details dt {
@@ -215,6 +301,90 @@ onUnmounted(() => clearTimeout(statusTimer))
 .detail-note {
   display: block;
   color: #8f88aa;
+}
+
+/* the parts of the facts panel (facts, mini section, more facts): set apart by a line */
+.part + .part {
+  margin-top: 0.55rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--edge-soft);
+}
+
+.history-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+  padding: 0.2rem 0.1rem;
+  border: none;
+  background: none;
+  color: #8f88aa;
+  font-size: 0.78rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: color 0.12s;
+}
+
+.history-toggle:hover {
+  color: #ddd;
+}
+
+.history-toggle:focus-visible {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 2px;
+  border-radius: 0.3rem;
+}
+
+/* points down when open, right when closed */
+.chevron {
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+  transform: rotate(-90deg);
+  transition: transform 0.15s;
+}
+
+.chevron.open {
+  transform: none;
+}
+
+.history-count {
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #ccc;
+  font-variant-numeric: tabular-nums;
+}
+
+/* many dates scroll inside it, so the popup doesn't grow past the screen */
+.history-list {
+  max-height: 9rem;
+  margin-top: 0.3rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.history-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-list li {
+  padding: 0.15rem 0;
+  color: #ddd;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-note {
+  margin: 0;
+  color: #8f88aa;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
+  }
 }
 
 /* ── Action list ── */

@@ -642,6 +642,16 @@ export async function addWatchTime(path: string, ms: number): Promise<number | n
   return data.watched_ms ?? null
 }
 
+/**
+ * Every moment a video / photo counted as a view (the "+1"), newest first (ms
+ * since 1970), on every device. Views from before the log existed have no date
+ */
+export async function fetchViewLog(path: string): Promise<number[]> {
+  const res = await fetch(`${API.viewLog}?path=${encodeURIComponent(path)}`)
+  if (!res.ok) throw new Error(`Loading the views failed (${res.status})`)
+  return ((await res.json()) as { views: number[] }).views
+}
+
 /** Sets how long a video / photo was watched (ms), on every device. Refused in dev mode */
 export async function setWatchTime(path: string, ms: number): Promise<void> {
   await post(`${API.setWatchTime}?path=${encodeURIComponent(path)}&ms=${ms}`)

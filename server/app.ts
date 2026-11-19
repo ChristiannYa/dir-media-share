@@ -57,6 +57,7 @@ import {
   ROUTE_TRASH_FILE,
   ROUTE_UPLOAD_FILE,
   ROUTE_VIEWED,
+  ROUTE_VIEW_LOG,
   ROUTE_WATCH_TIME,
   ROUTE_SET_WATCH_TIME,
 } from './consts/routes.ts'
@@ -97,6 +98,7 @@ import {
   uploadFile,
   viewedFile,
   setWatched,
+  viewLog,
   watchedFile,
 } from './handlers/files.ts'
 import { folderPreviewHandler } from './handlers/folderPreview.ts'
@@ -152,6 +154,7 @@ const routes: Record<string, { GET?: Handler; POST?: Handler }> = {
   [ROUTE_NUMBER_FILES]: { POST: numberFiles },
   [ROUTE_FAVORITE]: { POST: favoriteFile },
   [ROUTE_VIEWED]: { POST: viewedFile },
+  [ROUTE_VIEW_LOG]: { GET: viewLog },
   [ROUTE_WATCH_TIME]: { POST: watchedFile },
   [ROUTE_SET_WATCH_TIME]: { POST: setWatched },
   [ROUTE_MOST_PLAYED]: { GET: mostPlayed },

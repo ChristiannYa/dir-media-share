@@ -94,6 +94,11 @@ export const ROUTE_SET_PLAYS = '/api/plays'
 export const ROUTE_WATCH_TIME = '/api/watch-time'
 /** Sets how long a video / photo was watched (the metadata dialog): POST ?path=&ms= */
 export const ROUTE_SET_WATCH_TIME = '/api/watch-time/set'
+/**
+ * Every moment a video / photo counted as a view, newest first (server/viewLog.ts),
+ * for the file menu's list of views: GET ?path= : `{ views: number[] }`
+ */
+export const ROUTE_VIEW_LOG = '/api/view-log'
 /** A video was played / photo shown in the viewer: it and its folders get "last viewed" = now (server/views.ts), and its play count goes up: POST ?path= */
 export const ROUTE_VIEWED = '/api/viewed'
 /**
