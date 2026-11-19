@@ -77,14 +77,27 @@ function startCrop(e: PointerEvent, handle: Handle) {
     from: { ...crop },
     rect: frame.value.getBoundingClientRect(),
   }
+  // moving the whole box has no border to look at
+  if (handle !== 'move') {
+    const r = cropDrag.rect
+    hold.x = clamp((e.clientX - r.left) / r.width, 0, 1)
+    hold.y = clamp((e.clientY - r.top) / r.height, 0, 1)
+    heldHandle.value = handle
+    holding.value = true
+    previewLoop()
+  }
 }
 
 /** The handles' moves bubble up to the crop box, so this one listener sees them all */
 function moveCrop(e: PointerEvent) {
   if (!cropDrag) return
   const { handle, from, rect } = cropDrag
-  const dx = (e.clientX - cropDrag.px) / rect.width
-  const dy = (e.clientY - cropDrag.py) / rect.height
+  hold.x = clamp((e.clientX - rect.left) / rect.width, 0, 1)
+  hold.y = clamp((e.clientY - rect.top) / rect.height, 0, 1)
+  // while the zoomed preview shows, the crop follows the pointer more slowly
+  const slow = heldHandle.value ? PRECISION : 1
+  const dx = ((e.clientX - cropDrag.px) / rect.width) * slow
+  const dy = ((e.clientY - cropDrag.py) / rect.height) * slow
   if (handle === 'move') {
     crop.x = clamp(from.x + dx, 0, 1 - from.w)
     crop.y = clamp(from.y + dy, 0, 1 - from.h)
@@ -103,7 +116,140 @@ function moveCrop(e: PointerEvent) {
 
 function endCrop() {
   cropDrag = null
+  holding.value = false
+  heldHandle.value = null
+  cancelAnimationFrame(raf)
 }
+
+// ── Zoomed preview while a crop handle is held ──
+
+const image = ref<HTMLImageElement | null>(null)
+const preview = ref<HTMLCanvasElement | null>(null)
+/** A crop handle is being held: the zoomed preview shows */
+const holding = ref(false)
+/** The handle held (not the box itself): the preview zooms in on where it is */
+const heldHandle = ref<Handle | null>(null)
+/** How much closer than the picture as shown */
+const ZOOM = 8
+/** How far the crop moves per pixel the pointer moves while the preview shows (1 = as far) */
+const PRECISION = 0.25
+/** Longest a wide / tall strip gets, in px (a crop longer than that at this zoom shows the part around the pointer) */
+const MAX_WIDE = 600
+const MAX_TALL = 420
+/** Where the pointer is on the picture, as fractions of it */
+const hold = { x: 0, y: 0 }
+/** An edge's preview: this thick, in px, around the border */
+const STRIP = 110
+/** Extra shown past the crop's ends, as a fraction of its length, so the side borders show too */
+const PAD = 0.08
+let raf = 0
+
+/**
+ * Draws the spot being cropped, zoomed in: an edge shows the border along its
+ * whole length (a strip with the border in the middle), a corner the square
+ * around it. What's cut off is dimmed and the border is outlined
+ */
+function drawPreview() {
+  const c = preview.value
+  const el = isVideo ? video.value : image.value
+  const h = heldHandle.value
+  if (!c || !el || !h || !cropDrag || !natural.w) return
+
+  const shownW = cropDrag.rect.width
+  /** source pixels per pixel as shown */
+  const k = natural.w / shownW
+  const left = crop.x * natural.w
+  const right = (crop.x + crop.w) * natural.w
+  const top = crop.y * natural.h
+  const bottom = (crop.y + crop.h) * natural.h
+
+  let cw: number
+  let ch: number
+  let sw: number
+  let sh: number
+  let sx: number
+  let sy: number
+  const padX = crop.w * natural.w * PAD
+  const padY = crop.h * natural.h * PAD
+  if (h === 'e' || h === 'w') {
+    // a tall strip: the border across it. All the crop's height (and a bit
+    // more) if that fits at this zoom; else the part around the pointer
+    const full = (bottom - top + 2 * padY) / k
+    ch = Math.min(full * ZOOM, MAX_TALL)
+    cw = STRIP
+    sh = (ch / ZOOM) * k
+    sy = clamp(hold.y * natural.h - sh / 2, top - padY, bottom + padY - sh)
+    sw = (cw / ZOOM) * k
+    sx = (h === 'w' ? left : right) - sw / 2
+  } else {
+    // a wide strip (top, bottom and the corners): the border along it. All
+    // the crop's width (and a bit more) if that fits at this zoom; else the
+    // part around the pointer (a corner: around the corner)
+    const full = (right - left + 2 * padX) / k
+    cw = Math.min(full * ZOOM, MAX_WIDE, window.innerWidth - 48)
+    ch = STRIP
+    sw = (cw / ZOOM) * k
+    const cx = h.length === 2 ? (h.includes('w') ? left : right) : hold.x * natural.w
+    sx = clamp(cx - sw / 2, left - padX, right + padX - sw)
+    sh = (ch / ZOOM) * k
+    sy = (h.includes('n') ? top : bottom) - sh / 2
+  }
+
+  const dpr = window.devicePixelRatio || 1
+  c.width = Math.round(cw * dpr)
+  c.height = Math.round(ch * dpr)
+  c.style.width = `${cw}px`
+  c.style.height = `${ch}px`
+  const ctx = c.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  ctx.drawImage(el, sx, sy, sw, sh, 0, 0, cw, ch)
+
+  // the crop frame, where it falls in this view (what's outside it is dimmed)
+  const zx = cw / sw
+  const zy = ch / sh
+  const ix = (left - sx) * zx
+  const iy = (top - sy) * zy
+  const iw = (right - left) * zx
+  const ih = (bottom - top) * zy
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)'
+  ctx.beginPath()
+  ctx.rect(0, 0, cw, ch)
+  ctx.rect(ix, iy, iw, ih)
+  ctx.fill('evenodd')
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
+  ctx.lineWidth = 1.5
+  ctx.strokeRect(ix, iy, iw, ih)
+}
+
+/** Redraws every frame while held, so it stays live if the video plays */
+function previewLoop() {
+  drawPreview()
+  if (holding.value) raf = requestAnimationFrame(previewLoop)
+}
+
+/** Placed on the other side of the picture from the held spot, out of the way (and of a finger) */
+const previewStyle = computed(() => {
+  const h = heldHandle.value
+  if (!h) return {}
+  const style: Record<string, string> = {}
+  if (h === 'e' || h === 'w') {
+    // tall strip, on the side of the picture away from the held edge
+    const x = h === 'w' ? crop.x : crop.x + crop.w
+    style[x < 0.5 ? 'right' : 'left'] = '0.5rem'
+    style.top = '50%'
+    style.transform = 'translateY(-50%)'
+  } else {
+    // wide strip, centered, in the half of the picture away from the held edge
+    const y = h.includes('n') ? crop.y : crop.y + crop.h
+    style[y < 0.5 ? 'bottom' : 'top'] = '0.5rem'
+    style.left = '50%'
+    style.transform = 'translateX(-50%)'
+  }
+  return style
+})
+
+onUnmounted(() => cancelAnimationFrame(raf))
 
 /** Size of the picture as shown, to show the crop in pixels */
 const natural = reactive({ w: 0, h: 0 })
@@ -359,6 +505,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
     <p v-if="renamed && nameProblem" class="error">{{ nameProblem }}</p>
 
     <div class="stage">
+      <div class="wrap">
       <div ref="frame" class="frame">
         <video
           v-if="isVideo"
@@ -374,7 +521,15 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           @play="playing = true"
           @pause="playing = false"
         />
-        <img v-else class="media" :src="src" alt="" draggable="false" @load="onImageLoad" />
+        <img
+          v-else
+          ref="image"
+          class="media"
+          :src="src"
+          alt=""
+          draggable="false"
+          @load="onImageLoad"
+        />
 
         <div
           class="crop"
@@ -392,6 +547,10 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
             @pointerdown.stop="startCrop($event, h)"
           />
         </div>
+      </div>
+
+      <!-- the spot being cropped, zoomed in, while a handle is held -->
+      <canvas v-show="holding" ref="preview" class="preview" :style="previewStyle" />
       </div>
     </div>
 
@@ -570,6 +729,22 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.55);
   cursor: move;
   touch-action: none;
+}
+
+/* its position is set by previewStyle; it may be wider than the picture */
+.wrap {
+  position: relative;
+}
+
+.preview {
+  position: absolute;
+  z-index: 2;
+  border: 2px solid #fff;
+  border-radius: 0.5rem;
+  background: #000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  /* never takes the drag from the crop box */
+  pointer-events: none;
 }
 
 .handle {
