@@ -6,7 +6,7 @@ import LoadingDots from '@/components/LoadingDots.vue'
 import PreviewVideo from '@/components/PreviewVideo.vue'
 import StackBadge from '@/components/StackBadge.vue'
 import {
-  fileUrl,
+  entryFileUrl,
   folderPreviewUrl,
   folderThumbUrl,
   previewGeneration,
@@ -793,7 +793,7 @@ watch(
     <div v-else-if="entry.kind === 'image'" class="media-wrap" :style="{ aspectRatio: mediaRatio }">
       <div v-if="isThumbLoading(trackKey)" class="placeholder" />
       <img
-        :src="fileUrl(entry.path)"
+        :src="entryFileUrl(entry)"
         loading="lazy"
         :alt="entry.name"
         @load="onImageLoad"

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { fileUrl, queueEdit, renameEntry } from '@/api'
+import { entryFileUrl, queueEdit, renameEntry } from '@/api'
 import { pulseCompress } from '@/composables/useCompressQueue'
 import { PROMO_OUTROS, REPLACE_CONFIRM, type PromoOutro } from '@/constants'
 import type { Entry } from '@/types'
@@ -25,7 +25,7 @@ const props = defineProps<{ entry: Entry }>()
 const emit = defineEmits<{ close: []; changed: [] }>()
 
 const isVideo = props.entry.kind === 'video'
-const src = fileUrl(props.entry.path)
+const src = entryFileUrl(props.entry)
 
 const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n))
 const pct = (f: number) => `${f * 100}%`
@@ -859,7 +859,6 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M14 4H8v16h6" class="tool-line" />
           </svg>
-          Start here
         </button>
         <!-- the end moves to the playhead: what's after it is cut off -->
         <button
@@ -869,7 +868,6 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           :title="`End the part kept at ${formatTime(current)} (where the video is now)`"
           @click="trimEndHere"
         >
-          End here
           <!-- the end grip's bracket, "]" -->
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M10 4h6v16h-6" class="tool-line" />

@@ -5,7 +5,7 @@ import EditDialog from '@/components/EditDialog.vue'
 import MetadataDialog from '@/components/MetadataDialog.vue'
 import MovePicker from '@/components/MovePicker.vue'
 import RenameDialog from '@/components/RenameDialog.vue'
-import { fetchViewLog, fileUrl, fixTs, queueCompress, trashFile } from '@/api'
+import { entryFileUrl, fetchViewLog, fixTs, queueCompress, trashFile } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { pulseCompress, useCompressQueue } from '@/composables/useCompressQueue'
 import { popupsGone } from '@/composables/usePopupOpen'
@@ -146,7 +146,7 @@ const downloadItem: MenuItem = {
   icon: ICON_DOWNLOAD,
   row: 'tools',
   async run() {
-    downloadFile(fileUrl(props.entry.path), props.entry.name)
+    downloadFile(entryFileUrl(props.entry), props.entry.name)
     return null
   },
 }

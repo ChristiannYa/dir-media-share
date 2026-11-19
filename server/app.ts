@@ -223,8 +223,12 @@ interface Mount {
 const mounts: Mount[] = [
   { prefix: ROUTE_PREVIEWS, root: PREVIEW_DIR, cacheControl: generatedCacheControl },
   { prefix: ROUTE_STORYBOARDS, root: STORYBOARD_DIR, cacheControl: generatedCacheControl },
-  // originals can be edited under the same name, so the browser always checks
-  { prefix: ROUTE_FILES, root: SHARE_ROOT },
+  // originals can be edited under the same name, so the browser always checks.
+  // Said outright: with no Cache-Control at all, browsers guess how long a file
+  // with a Last-Modified stays fresh (a tenth of its age: weeks for an old
+  // one) and reuse it all that time without asking, so a file replaced in
+  // place ("Replace original") kept showing as it was
+  { prefix: ROUTE_FILES, root: SHARE_ROOT, cacheControl: () => 'no-cache' },
 ]
 
 function mountFor(pathname: string): Mount | undefined {

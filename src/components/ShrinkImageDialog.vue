@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
-import { discardUpload, fileUrl, uploadFile, type Upload } from '@/api'
+import { discardUpload, entryFileUrl, uploadFile, type Upload } from '@/api'
 import { SHRINK_PRESETS, SHRINK_TARGET_STORAGE_KEY } from '@/constants'
 import type { Entry } from '@/types'
 import { formatSize } from '@/utils/format'
@@ -194,7 +194,7 @@ async function shrink(item: Item, target: number, label: string) {
   controller = new AbortController()
   const { signal } = controller
   try {
-    const result = await shrinkImage(fileUrl(item.entry.path), item.entry.name, target, {
+    const result = await shrinkImage(entryFileUrl(item.entry), item.entry.name, target, {
       signal,
       onStep: (step) => (item.step = step),
     })

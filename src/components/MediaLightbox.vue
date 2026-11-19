@@ -5,7 +5,7 @@ import LockTimer from '@/components/LockTimer.vue'
 import NightSky from '@/components/NightSky.vue'
 import VideoPlayer from '@/components/VideoPlayer.vue'
 import ViewPop from '@/components/ViewPop.vue'
-import { fileUrl, storyboardUrl, thumbUrl } from '@/api'
+import { entryFileUrl, storyboardUrl, thumbUrl } from '@/api'
 import { recordsVideoData } from '@/appMode'
 import { useAutoHide } from '@/composables/useAutoHide'
 import { useContainedInset } from '@/composables/useContainedInset'
@@ -630,7 +630,7 @@ onUnmounted(() => {
         </div>
         <img
           v-if="entry.kind === 'image'"
-          :src="fileUrl(entry.path)"
+          :src="entryFileUrl(entry)"
           :alt="entry.name"
           draggable="false"
           :class="{ rotated: fullscreen && rotation !== 0, sideways }"
@@ -678,7 +678,7 @@ onUnmounted(() => {
         </div>
         <VideoPlayer
           v-if="entry.kind === 'video'"
-          :src="fileUrl(entry.path)"
+          :src="entryFileUrl(entry)"
           :path="entry.path"
           :poster="thumbUrl(entry.path)"
           :storyboard="storyboardUrl(entry.path)"
@@ -713,7 +713,7 @@ onUnmounted(() => {
           @click="onThumbClick(item)"
         >
           <img
-            :src="item.kind === 'image' ? fileUrl(item.path) : thumbUrl(item.path)"
+            :src="item.kind === 'image' ? entryFileUrl(item) : thumbUrl(item.path)"
             :alt="item.name"
             loading="lazy"
             draggable="false"
