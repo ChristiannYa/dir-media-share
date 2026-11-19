@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, reactive, ref } from 'vue'
+import { computed, onUnmounted, reactive, ref, watch } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { fileUrl, queueEdit, renameEntry } from '@/api'
 import { pulseCompress } from '@/composables/useCompressQueue'
@@ -58,6 +58,31 @@ const crop = reactive({ x: 0, y: 0, w: 1, h: 1 })
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se'
 const HANDLES: Handle[] = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']
 
+/**
+ * "One side at a time" (a toggle, kept in this browser, on by default): the
+ * crop box can't be moved as a whole, and a corner cuts only one of its two
+ * sides, the one the pointer starts moving toward (the other stays put). Off:
+ * the box moves, and corners cut both sides, like a photo editor's
+ */
+const ONE_SIDE_KEY = 'edit-one-side'
+function loadOneSide(): boolean {
+  try {
+    return localStorage.getItem(ONE_SIDE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+const oneSide = ref(loadOneSide())
+watch(oneSide, (on) => {
+  try {
+    localStorage.setItem(ONE_SIDE_KEY, on ? 'on' : 'off')
+  } catch {
+    // not kept: it's back to on next time
+  }
+})
+/** How far (px) the pointer goes from a corner before the side it cuts is picked */
+const PICK_PX = 4
+
 const frame = ref<HTMLElement | null>(null)
 let cropDrag: {
   handle: Handle
@@ -69,6 +94,8 @@ let cropDrag: {
 
 function startCrop(e: PointerEvent, handle: Handle) {
   if (!frame.value || saving.value) return
+  // the whole box stays where it is: only its sides are cut
+  if (handle === 'move' && oneSide.value) return
   ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
   cropDrag = {
     handle,
@@ -91,6 +118,17 @@ function startCrop(e: PointerEvent, handle: Handle) {
 /** The handles' moves bubble up to the crop box, so this one listener sees them all */
 function moveCrop(e: PointerEvent) {
   if (!cropDrag) return
+  if (oneSide.value && cropDrag.handle.length === 2) {
+    // a corner: nothing moves until the pointer has gone a little, then only
+    // the side it went toward (more sideways: the left / right one, else the
+    // top / bottom one) is cut for the rest of the drag
+    const mx = e.clientX - cropDrag.px
+    const my = e.clientY - cropDrag.py
+    if (Math.hypot(mx, my) < PICK_PX) return
+    const side = (Math.abs(mx) > Math.abs(my) ? cropDrag.handle[1] : cropDrag.handle[0]) as Handle
+    cropDrag.handle = side
+    heldHandle.value = side
+  }
   const { handle, from, rect } = cropDrag
   hold.x = clamp((e.clientX - rect.left) / rect.width, 0, 1)
   hold.y = clamp((e.clientY - rect.top) / rect.height, 0, 1)
@@ -533,6 +571,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
         <div
           class="crop"
+          :class="{ fixed: oneSide }"
           :style="{ left: pct(crop.x), top: pct(crop.y), width: pct(crop.w), height: pct(crop.h) }"
           @pointerdown="startCrop($event, 'move')"
           @pointermove="moveCrop"
@@ -623,6 +662,18 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
         </div>
       </div>
     </template>
+
+    <!-- the crop box can't be moved as a whole, and corners cut one side only -->
+    <label class="check">
+      <input v-model="oneSide" type="checkbox" :disabled="saving" />
+      <span class="box" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" /></svg>
+      </span>
+      <span class="check-text">
+        <span class="check-title">One side at a time</span>
+        <small>The crop can't be moved as a whole, and a corner cuts only one side</small>
+      </span>
+    </label>
 
     <!-- only means something once there's a copy to make (trim / crop) -->
     <label class="check" :class="{ off: !makesCopy }">
@@ -734,6 +785,11 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 /* its position is set by previewStyle; it may be wider than the picture */
 .wrap {
   position: relative;
+}
+
+/* "One side at a time": the box itself isn't draggable */
+.crop.fixed {
+  cursor: default;
 }
 
 .preview {
