@@ -64,24 +64,143 @@ const HANDLES: Handle[] = ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se']
  * sides, the one the pointer starts moving toward (the other stays put). Off:
  * the box moves, and corners cut both sides, like a photo editor's
  */
-const ONE_SIDE_KEY = 'edit-one-side'
-function loadOneSide(): boolean {
-  try {
-    return localStorage.getItem(ONE_SIDE_KEY) !== 'off'
-  } catch {
-    return true
-  }
-}
-const oneSide = ref(loadOneSide())
-watch(oneSide, (on) => {
-  try {
-    localStorage.setItem(ONE_SIDE_KEY, on ? 'on' : 'off')
-  } catch {
-    // not kept: it's back to on next time
-  }
-})
+const oneSide = storedToggle('edit-one-side')
 /** How far (px) the pointer goes from a corner before the side it cuts is picked */
 const PICK_PX = 4
+
+/** An on / off option kept in this browser (on by default; back to on if it can't be kept) */
+function storedToggle(key: string) {
+  let on = true
+  try {
+    on = localStorage.getItem(key) !== 'off'
+  } catch {
+    // not readable: on
+  }
+  const toggle = ref(on)
+  watch(toggle, (value) => {
+    try {
+      localStorage.setItem(key, value ? 'on' : 'off')
+    } catch {
+      // not kept: it's back to on next time
+    }
+  })
+  return toggle
+}
+
+// ── Snap to edges ──
+
+/**
+ * "Snap to edges" (a toggle, kept in this browser, on by default): a border
+ * pulled near an edge in the picture (where it changes sharply all along the
+ * border, like a black bar's or a screenshot's frame), or near the picture's
+ * own edge, sticks to it. The edges are found once, when a border is grabbed,
+ * from the frame shown then, inside the crop as it was
+ */
+const snapOn = storedToggle('edit-snap')
+/** How close (px, as shown) a border has to come to an edge to stick to it */
+const SNAP_PX = 4
+/** The picture is read at most this many px on its longest side to find the edges */
+const SNAP_SAMPLE = 2048
+/** Least average change in brightness (0–255) across a line for it to count as an edge */
+const EDGE_MIN = 10
+/** Edges found when the border was grabbed, as fractions: rows (for the top / bottom), columns (left / right) */
+let edges: { rows: number[]; cols: number[] } | null = null
+/** The sides ('n', 's', 'e', 'w') stuck to an edge right now: the preview draws them highlighted */
+let snappedSides = ''
+
+/**
+ * The lines in `p` that stand out: higher than both neighbours and well above
+ * the picture's usual change (`p[i]`: the change between line i − 1 and i)
+ */
+function peaks(p: Float32Array, n: number): number[] {
+  if (n < 3) return []
+  let sum = 0
+  let sq = 0
+  for (let i = 1; i < n; i++) {
+    sum += p[i]!
+    sq += p[i]! * p[i]!
+  }
+  const mean = sum / (n - 1)
+  const sd = Math.sqrt(Math.max(0, sq / (n - 1) - mean * mean))
+  const min = Math.max(EDGE_MIN, mean + 3 * sd)
+  const found: number[] = []
+  for (let i = 1; i < n; i++) {
+    const v = p[i]!
+    if (v >= min && v >= p[i - 1]! && v > p[i + 1]!) found.push(i / n)
+  }
+  return found
+}
+
+/**
+ * Finds the edges in the picture as shown now: for each line between two rows
+ * (two columns), how much the brightness changes across it, averaged over the
+ * crop's width (height), since that's the length of the border that would
+ * stick to it. The picture's own edges are always there. If its pixels can't
+ * be read, only those
+ */
+function findEdges(): { rows: number[]; cols: number[] } {
+  const found = { rows: [0, 1], cols: [0, 1] }
+  const el = isVideo ? video.value : image.value
+  if (!el || !natural.w) return found
+  const scale = Math.min(1, SNAP_SAMPLE / Math.max(natural.w, natural.h))
+  const w = Math.max(1, Math.round(natural.w * scale))
+  const h = Math.max(1, Math.round(natural.h * scale))
+  try {
+    const c = document.createElement('canvas')
+    c.width = w
+    c.height = h
+    const ctx = c.getContext('2d', { willReadFrequently: true })
+    if (!ctx) return found
+    ctx.drawImage(el, 0, 0, w, h)
+    const px = ctx.getImageData(0, 0, w, h).data
+    const lum = new Float32Array(w * h)
+    for (let i = 0, j = 0; i < lum.length; i++, j += 4) {
+      lum[i] = 0.299 * px[j]! + 0.587 * px[j + 1]! + 0.114 * px[j + 2]!
+    }
+    // only what's inside the crop: what's cut off already doesn't count
+    const x0 = clamp(Math.floor(crop.x * w), 0, w)
+    const x1 = clamp(Math.ceil((crop.x + crop.w) * w), x0 + 1, w)
+    const y0 = clamp(Math.floor(crop.y * h), 0, h)
+    const y1 = clamp(Math.ceil((crop.y + crop.h) * h), y0 + 1, h)
+    const rows = new Float32Array(h + 1)
+    const cols = new Float32Array(w + 1)
+    for (let y = 1; y < h; y++) {
+      const a = (y - 1) * w
+      const b = y * w
+      let s = 0
+      for (let x = x0; x < x1; x++) s += Math.abs(lum[b + x]! - lum[a + x]!)
+      rows[y] = s / (x1 - x0)
+    }
+    for (let y = y0; y < y1; y++) {
+      const b = y * w
+      for (let x = 1; x < w; x++) cols[x] = cols[x]! + Math.abs(lum[b + x]! - lum[b + x - 1]!)
+    }
+    for (let x = 1; x < w; x++) cols[x] = cols[x]! / (y1 - y0)
+    found.rows.push(...peaks(rows, h))
+    found.cols.push(...peaks(cols, w))
+  } catch {
+    // its pixels can't be read: only the picture's own edges
+  }
+  return found
+}
+
+/**
+ * `v` stuck to the nearest of `list` within SNAP_PX (as shown: `size` px is
+ * the whole picture), if that one is between `lo` and `hi`; else `v` itself
+ */
+function snapTo(v: number, list: number[], size: number, lo: number, hi: number, side: string) {
+  let best = v
+  let dist = SNAP_PX / size
+  for (const edge of list) {
+    const d = Math.abs(edge - v)
+    if (d <= dist && edge >= lo && edge <= hi) {
+      best = edge
+      dist = d
+    }
+  }
+  if (best !== v || list.includes(v)) snappedSides += side
+  return best
+}
 
 const frame = ref<HTMLElement | null>(null)
 let cropDrag: {
@@ -111,6 +230,8 @@ function startCrop(e: PointerEvent, handle: Handle) {
     hold.y = clamp((e.clientY - r.top) / r.height, 0, 1)
     heldHandle.value = handle
     holding.value = true
+    snappedSides = ''
+    edges = snapOn.value ? findEdges() : null
     previewLoop()
   }
 }
@@ -149,11 +270,21 @@ function moveCrop(e: PointerEvent) {
   if (handle.includes('e')) right = clamp(right + dx, left + MIN_CROP, 1)
   if (handle.includes('n')) top = clamp(top + dy, 0, bottom - MIN_CROP)
   if (handle.includes('s')) bottom = clamp(bottom + dy, top + MIN_CROP, 1)
+  snappedSides = ''
+  if (snapOn.value && edges) {
+    const { width: sw, height: sh } = rect
+    if (handle.includes('w')) left = snapTo(left, edges.cols, sw, 0, right - MIN_CROP, 'w')
+    if (handle.includes('e')) right = snapTo(right, edges.cols, sw, left + MIN_CROP, 1, 'e')
+    if (handle.includes('n')) top = snapTo(top, edges.rows, sh, 0, bottom - MIN_CROP, 'n')
+    if (handle.includes('s')) bottom = snapTo(bottom, edges.rows, sh, top + MIN_CROP, 1, 's')
+  }
   Object.assign(crop, { x: left, y: top, w: right - left, h: bottom - top })
 }
 
 function endCrop() {
   cropDrag = null
+  edges = null
+  snappedSides = ''
   holding.value = false
   heldHandle.value = null
   cancelAnimationFrame(raf)
@@ -258,6 +389,30 @@ function drawPreview() {
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)'
   ctx.lineWidth = 1.5
   ctx.strokeRect(ix, iy, iw, ih)
+
+  // a side stuck to an edge: drawn in the trim bar's yellow
+  if (snappedSides) {
+    ctx.strokeStyle = '#f5c518'
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    if (snappedSides.includes('n')) {
+      ctx.moveTo(ix, iy)
+      ctx.lineTo(ix + iw, iy)
+    }
+    if (snappedSides.includes('s')) {
+      ctx.moveTo(ix, iy + ih)
+      ctx.lineTo(ix + iw, iy + ih)
+    }
+    if (snappedSides.includes('w')) {
+      ctx.moveTo(ix, iy)
+      ctx.lineTo(ix, iy + ih)
+    }
+    if (snappedSides.includes('e')) {
+      ctx.moveTo(ix + iw, iy)
+      ctx.lineTo(ix + iw, iy + ih)
+    }
+    ctx.stroke()
+  }
 }
 
 /** Redraws every frame while held, so it stays live if the video plays */
@@ -544,52 +699,57 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
     <div class="stage">
       <div class="wrap">
-      <div ref="frame" class="frame">
-        <video
-          v-if="isVideo"
-          ref="video"
-          class="media"
-          :src="src"
-          muted
-          playsinline
-          preload="auto"
-          @loadedmetadata="onMeta"
-          @volumechange="muted = video?.muted ?? true"
-          @timeupdate="onTime"
-          @play="playing = true"
-          @pause="playing = false"
-        />
-        <img
-          v-else
-          ref="image"
-          class="media"
-          :src="src"
-          alt=""
-          draggable="false"
-          @load="onImageLoad"
-        />
-
-        <div
-          class="crop"
-          :class="{ fixed: oneSide }"
-          :style="{ left: pct(crop.x), top: pct(crop.y), width: pct(crop.w), height: pct(crop.h) }"
-          @pointerdown="startCrop($event, 'move')"
-          @pointermove="moveCrop"
-          @pointerup="endCrop"
-          @pointercancel="endCrop"
-        >
-          <span
-            v-for="h in HANDLES"
-            :key="h"
-            class="handle"
-            :class="h"
-            @pointerdown.stop="startCrop($event, h)"
+        <div ref="frame" class="frame">
+          <video
+            v-if="isVideo"
+            ref="video"
+            class="media"
+            :src="src"
+            muted
+            playsinline
+            preload="auto"
+            @loadedmetadata="onMeta"
+            @volumechange="muted = video?.muted ?? true"
+            @timeupdate="onTime"
+            @play="playing = true"
+            @pause="playing = false"
           />
-        </div>
-      </div>
+          <img
+            v-else
+            ref="image"
+            class="media"
+            :src="src"
+            alt=""
+            draggable="false"
+            @load="onImageLoad"
+          />
 
-      <!-- the spot being cropped, zoomed in, while a handle is held -->
-      <canvas v-show="holding" ref="preview" class="preview" :style="previewStyle" />
+          <div
+            class="crop"
+            :class="{ fixed: oneSide }"
+            :style="{
+              left: pct(crop.x),
+              top: pct(crop.y),
+              width: pct(crop.w),
+              height: pct(crop.h),
+            }"
+            @pointerdown="startCrop($event, 'move')"
+            @pointermove="moveCrop"
+            @pointerup="endCrop"
+            @pointercancel="endCrop"
+          >
+            <span
+              v-for="h in HANDLES"
+              :key="h"
+              class="handle"
+              :class="h"
+              @pointerdown.stop="startCrop($event, h)"
+            />
+          </div>
+        </div>
+
+        <!-- the spot being cropped, zoomed in, while a handle is held -->
+        <canvas v-show="holding" ref="preview" class="preview" :style="previewStyle" />
       </div>
     </div>
 
@@ -663,19 +823,51 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
       </div>
     </template>
 
-    <!-- the crop box can't be moved as a whole, and corners cut one side only -->
-    <label class="check">
-      <input v-model="oneSide" type="checkbox" :disabled="saving" />
-      <span class="box" aria-hidden="true">
-        <svg viewBox="0 0 24 24"><path d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4z" /></svg>
-      </span>
+    <!-- the crop's tools, laid out like the "Trim" row above: how the white
+         frame's handles behave while it's being cut (each on / off by itself) -->
+    <div class="promo">
       <span class="check-text">
-        <span class="check-title">One side at a time</span>
-        <small>The crop can't be moved as a whole, and a corner cuts only one side</small>
+        <span class="check-title">Crop</span>
       </span>
-    </label>
+      <div class="tool-options" role="group" aria-label="Crop tools">
+        <!-- the crop box can't be moved as a whole, and corners cut one side only -->
+        <button
+          type="button"
+          class="tool"
+          :class="{ active: oneSide }"
+          :aria-pressed="oneSide"
+          :disabled="saving"
+          title="One side at a time: the crop can't be moved as a whole, and a corner cuts only one side"
+          @click="oneSide = !oneSide"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="4" y="5" width="16" height="14" rx="1.5" class="tool-dash" />
+            <path d="M4 19h16" class="tool-bold" />
+          </svg>
+          One side
+        </button>
+        <!-- a border pulled near an edge in the picture sticks to it -->
+        <button
+          type="button"
+          class="tool"
+          :class="{ active: snapOn }"
+          :aria-pressed="snapOn"
+          :disabled="saving"
+          title="Snap to edges: a border pulled near an edge in the picture (a black bar, a frame) sticks to it"
+          @click="snapOn = !snapOn"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 4v16" class="tool-bold" />
+            <path d="M20 12H10m0 0 4-4m-4 4 4 4" class="tool-line" />
+          </svg>
+          Snap
+        </button>
+      </div>
+    </div>
 
-    <!-- only means something once there's a copy to make (trim / crop) -->
+    <!-- not an edit: what happens to the copy once the edit has made it.
+         Only means something once there's a copy to make (trim / crop) -->
+    <p class="after-title">After the edit</p>
     <label class="check" :class="{ off: !makesCopy }">
       <input v-model="compressAfter" type="checkbox" :disabled="saving || !makesCopy" />
       <span class="box" aria-hidden="true">
@@ -687,6 +879,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           <!-- the size of the file being edited, as it is now -->
           <span v-if="entry.size" class="check-size">{{ formatSize(entry.size) }}</span>
         </span>
+        <small>Once the edited copy is made; only the compressed one is kept</small>
       </span>
     </label>
 
@@ -1021,6 +1214,92 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 .promo-option:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ── "Crop: One side | Snap": the edit's tools, in the Trim row's group (dark
+   fill, the edge), but each a toggle of its own: on shows a blue tint and
+   ring rather than the solid blue of the one picked in Trim (one of several) ── */
+.tool-options {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--edge);
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: calc(0.6rem - 2px);
+  background: none;
+  color: #999;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+
+.tool svg {
+  width: 1rem;
+  height: 1rem;
+  fill: none;
+  stroke: currentColor;
+}
+
+.tool-dash {
+  stroke-width: 1.5;
+  stroke-dasharray: 2 2;
+}
+
+.tool-bold {
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.tool-line {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tool:hover:not(:disabled):not(.active) {
+  color: #fff;
+}
+
+.tool.active {
+  border-color: rgba(45, 108, 223, 0.7);
+  background: rgba(45, 108, 223, 0.22);
+  color: #fff;
+}
+
+.tool:focus-visible {
+  outline: 2px solid #8a5cf6;
+  outline-offset: 1px;
+}
+
+.tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── "After the edit": set apart from the edit's tools above by a line, with
+   a small heading, as it's not part of the edit but done to its copy after ── */
+.after-title {
+  margin: 0;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--edge);
+  color: #8f88aa;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 /* ── "Compress it too": a checkbox in the inputs' style (dark fill, the edge,
