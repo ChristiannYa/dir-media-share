@@ -139,8 +139,12 @@ export interface MenuHistory {
   fact: MenuDetail
   /** Text of the button that opens / closes the list, e.g. "All views" */
   listLabel: string
-  /** Shown instead of the list while it has no dates */
-  emptyText: string
+  /** How many there are: shown on the button. 0: no button, `noneText` instead */
+  count: number
+  /** Shown instead of the button while there are none, e.g. "No views yet" */
+  noneText: string
+  /** Under the list when it has fewer dates than `count` (older ones weren't dated): says how many */
+  undated: (n: number) => string
   /** The dates (already written out), newest first; asked when the list is opened */
   load: () => Promise<string[]>
 }

@@ -244,14 +244,13 @@ const details = computed(() => {
 })
 
 /**
- * Photos and videos are "viewed": shown / played in the viewer. How often and
- * for how long, on every device (what the "Most played" and "Most watch time"
- * sections go by), under the mini section (`history`)
+ * Photos and videos: for how long they were watched / shown in the viewer, on
+ * every device (what the "Most watch time" section goes by), under the mini
+ * section (`history`, which also has the number of views)
  */
 const moreDetails = computed(() => {
   const list: MenuDetail[] = []
   if (isMedia) {
-    list.push({ label: 'Views', value: String(props.entry.plays ?? 0) })
     list.push({ label: 'Time watched', value: formatWatched(props.entry.watched_ms ?? 0) })
   }
   return list
@@ -259,9 +258,10 @@ const moreDetails = computed(() => {
 
 /**
  * The mini section under "Added" (photos and videos): "Last viewed", which stays
- * in its place, and a list that opens under it with every moment a view
- * counted (the "+1"), newest first. Views from before the dates were kept
- * aren't in the list
+ * in its place, and under it either "All views" with the number of views, which
+ * opens a list of every moment a view counted (the "+1"), newest first, or,
+ * with no views, a message. Views from before the dates were kept have no date
+ * (the list says how many)
  */
 const history = computed<MenuHistory | undefined>(() => {
   if (!isMedia) return undefined
@@ -274,7 +274,9 @@ const history = computed<MenuHistory | undefined>(() => {
       note: last ? formatAgo(last, minuteClock.value) : undefined,
     },
     listLabel: 'All views',
-    emptyText: 'No dates were kept yet',
+    count: props.entry.plays ?? 0,
+    noneText: 'No views yet',
+    undated: (n) => `${n} earlier ${n === 1 ? 'view has' : 'views have'} no date`,
     load: async () => (await fetchViewLog(props.entry.path)).map((at) => formatDate(at)),
   }
 })

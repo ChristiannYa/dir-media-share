@@ -65,6 +65,12 @@ const historyOpen = ref(false)
 const historyDates = ref<string[] | null>(null)
 const historyLoading = ref(false)
 const historyFailed = ref(false)
+/** How many of the section's count have no date in the loaded list (older ones weren't dated) */
+const historyUndated = computed(() =>
+  historyDates.value && props.history
+    ? Math.max(0, props.history.count - historyDates.value.length)
+    : 0,
+)
 
 /** Opens the list (asking for the dates each time, so they're current) or closes it */
 async function toggleHistory() {
@@ -188,26 +194,38 @@ onUnmounted(() => clearTimeout(statusTimer))
             <span v-if="history.fact.note" class="detail-note">{{ history.fact.note }}</span>
           </dd>
         </dl>
-        <button
-          type="button"
-          class="history-toggle"
-          :aria-expanded="historyOpen"
-          @click="toggleHistory"
-        >
-          <svg class="chevron" :class="{ open: historyOpen }" viewBox="0 0 24 24" aria-hidden="true">
-            <path :d="ICON_CHEVRON" />
-          </svg>
-          {{ history.listLabel }}
-          <span v-if="historyDates" class="history-count">{{ historyDates.length }}</span>
-        </button>
-        <div v-if="historyOpen" class="history-list">
-          <p v-if="historyLoading" class="history-note">Loading…</p>
-          <p v-else-if="historyFailed" class="history-note">The dates could not be loaded</p>
-          <p v-else-if="!historyDates?.length" class="history-note">{{ history.emptyText }}</p>
-          <ul v-else>
-            <li v-for="(date, i) in historyDates" :key="i">{{ date }}</li>
-          </ul>
-        </div>
+        <p v-if="history.count <= 0" class="history-note history-none">{{ history.noneText }}</p>
+        <template v-else>
+          <button
+            type="button"
+            class="history-toggle"
+            :aria-expanded="historyOpen"
+            @click="toggleHistory"
+          >
+            <svg
+              class="chevron"
+              :class="{ open: historyOpen }"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path :d="ICON_CHEVRON" />
+            </svg>
+            {{ history.listLabel }}
+            <span class="history-count">{{ history.count }}</span>
+          </button>
+          <div v-if="historyOpen" class="history-list">
+            <p v-if="historyLoading" class="history-note">Loading…</p>
+            <p v-else-if="historyFailed" class="history-note">The dates could not be loaded</p>
+            <template v-else>
+              <ul v-if="historyDates?.length">
+                <li v-for="(date, i) in historyDates" :key="i">{{ date }}</li>
+              </ul>
+              <p v-if="historyUndated > 0" class="history-note">
+                {{ history.undated(historyUndated) }}
+              </p>
+            </template>
+          </div>
+        </template>
       </section>
 
       <dl v-if="moreDetails?.length" class="details part">
@@ -379,6 +397,15 @@ onUnmounted(() => clearTimeout(statusTimer))
 .history-note {
   margin: 0;
   color: #8f88aa;
+}
+
+/* no views: the message sits under the fact, where the button would be */
+.history-none {
+  margin-top: 0.4rem;
+}
+
+.history-list ul + .history-note {
+  margin-top: 0.25rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
