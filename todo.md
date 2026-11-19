@@ -32,6 +32,10 @@
 - add a status indicator (loading, done, failed) on anything that does
   operations on the server laptop (clearing cache, renaming, etc)
 - add a "clear" button to items on the `mip`
+- add large pulsating red color around the screen when the lock timer is about
+  to run out. it should show above everything, even fullscreen
+- add a time increase on the lock when clicking on it: right click on the clock
+  should now show 2 options: lock and add time (prev featurei)
 
 # Check if
 
