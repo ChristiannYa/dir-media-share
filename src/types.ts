@@ -32,6 +32,12 @@ export interface Entry {
   favorite_count?: number | null
   /** files only: a compressed copy not opened yet, shown with the "Compressed!" banner (every device) */
   compressed_new?: boolean
+  /**
+   * files only, with compressed_new: what was done to it, for its "Edited!" /
+   * "Compressed!" badges; null if not known (older ones: told from the name).
+   * A file that replaced its original has the original's name, so only this says
+   */
+  new_kind?: { edited: boolean; compressed: boolean } | null
   /** folders only: compressed copies not opened yet directly inside it (not its subfolders') */
   compressed_new_count?: number | null
   /**
@@ -71,6 +77,11 @@ export interface CompressJob {
    * original's size and the compressed copy's
    */
   compressAfter: boolean
+  /**
+   * The result takes the original's place (the original goes to the trash);
+   * `copyPath` / `copyName` are then the file in its place
+   */
+  replace: boolean
   /** The original, inside the shared folder */
   path: string
   name: string

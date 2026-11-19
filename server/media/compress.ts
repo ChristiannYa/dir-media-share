@@ -308,6 +308,13 @@ export interface CompressHooks {
   /** Called once it's this video's turn and ffmpeg starts */
   onStart: () => void
   onProgress: (p: CompressProgress) => void
+  /**
+   * Keeps the copy's name out of the listings from before the file exists
+   * (claimName's `hold`), for a copy that is only a step: one that will
+   * replace its original. The name stays held once saved (the caller lets it
+   * go); it's let go if the copy isn't kept
+   */
+  hold?: (name: string, held: boolean) => void
 }
 
 /**
@@ -330,7 +337,7 @@ export function compressVideo(file: string, hooks: CompressHooks): Promise<Compr
 
 async function compressNow(
   file: string,
-  { signal, onProgress }: CompressHooks,
+  { signal, onProgress, hold }: CompressHooks,
 ): Promise<CompressResult> {
   const original = await stat(file)
   const skip = (note: string): CompressResult => ({
@@ -396,10 +403,11 @@ async function compressNow(
     // stopped while it was finishing: nobody wants the copy
     if (signal.aborted) throw new CompressError('Cancelled')
 
-    const saved = await claimName(tmp, dir, copyName(file, target, options))
+    const saved = await claimName(tmp, dir, copyName(file, target, options), hold)
     // stopped while it was being named: remove it again
     if (signal.aborted) {
       await unlink(saved).catch(() => {})
+      hold?.(path.basename(saved), false)
       throw new CompressError('Cancelled')
     }
     rememberCopy(saved)

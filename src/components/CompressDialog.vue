@@ -181,6 +181,15 @@ function sizesBelow(job: CompressJob): boolean {
 
 /** What the row says while an edit + compress job runs: which step, and what comes next */
 function phaseNote(job: CompressJob): string {
+  if (job.replace && isActive(job)) {
+    // no copy: the result takes the original's place once it's done
+    if (editThenCompress(job)) {
+      return job.fraction < 0.5
+        ? 'Edited first, then compressed right after; then it replaces the original'
+        : 'Edited: now compressing it. Then it replaces the original'
+    }
+    return 'Once done, it replaces the original (which goes to the trash)'
+  }
   if (!editThenCompress(job)) return ''
   return job.fraction < 0.5
     ? 'Edited copy first, then it is compressed right after: only the compressed copy is kept'
@@ -337,6 +346,14 @@ function progressText(job: CompressJob): string {
                   "
                 >
                   {{ job.compressAfter ? 'edit + compress' : 'edit' }}
+                </span>
+                <!-- no copy: the result takes the original's place -->
+                <span
+                  v-if="job.replace"
+                  class="file-tag replace-tag"
+                  title="The result takes the original's place (the original goes to the trash)"
+                >
+                  replace
                 </span>
                 <span class="file-name">{{ job.name }}</span>
                 <span class="file-size">
@@ -673,6 +690,12 @@ function progressText(job: CompressJob): string {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+/* replaces the original: the red of the destructive buttons */
+.file-tag.replace-tag {
+  background: rgba(231, 76, 60, 0.16);
+  color: #f07060;
 }
 
 .file-name {

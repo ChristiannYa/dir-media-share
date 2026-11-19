@@ -3,7 +3,7 @@ import { computed, onUnmounted, reactive, ref } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import { fileUrl, queueEdit, renameEntry } from '@/api'
 import { pulseCompress } from '@/composables/useCompressQueue'
-import { PROMO_OUTROS, type PromoOutro } from '@/constants'
+import { PROMO_OUTROS, REPLACE_CONFIRM, type PromoOutro } from '@/constants'
 import type { Entry } from '@/types'
 import { formatSize } from '@/utils/format'
 
@@ -284,9 +284,15 @@ let anythingSaved = false
  * step that fails stops there: the ones before stay saved, and Save tries the
  * rest again. The copy shows up in the folder once the queue has made it
  * (App reloads the folder), with the "Edited!" banner.
+ *
+ * `replace` (the "Replace original" button, after asking): no copy; once the
+ * queue is done, the result takes this file's place, with its name (a video's
+ * extension becomes .mp4), heart and views, and the original goes to the
+ * trash. It wears the "Edited!" (and "Compressed!") badges until it's opened
  */
-async function save() {
-  if (!canSave.value) return
+async function save(replace = false) {
+  if (!canSave.value || (replace && !makesCopy.value)) return
+  if (replace && !confirm(REPLACE_CONFIRM.replace('{name}', newName.value.trim()))) return
   saving.value = true
   error.value = ''
   video.value?.pause()
@@ -301,7 +307,7 @@ async function save() {
       pulseCompress()
       // a photo has nothing to trim
       const { start, end } = isVideo ? trim : { start: 0, end: 0 }
-      await queueEdit(savedPath, { start, end, ...crop }, compressAfter.value)
+      await queueEdit(savedPath, { start, end, ...crop }, compressAfter.value, replace)
     }
     close()
   } catch (e) {
@@ -346,7 +352,7 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
           autocomplete="off"
           enterkeyhint="done"
           :disabled="saving"
-          @keydown.enter.prevent="save"
+          @keydown.enter.prevent="save()"
         />
       </label>
     </div>
@@ -478,9 +484,17 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
     <div class="actions">
       <button class="button" :disabled="saving || !hasChanges" @click="reset">Reset</button>
-      <span class="spacer" />
       <button class="button" :disabled="saving" @click="close">Cancel</button>
-      <button class="button primary" :disabled="!canSave" @click="save">
+      <!-- no copy: the result takes this file's place once done (asks first) -->
+      <button
+        class="button replace"
+        :disabled="!canSave || !makesCopy"
+        title="Put the result in place of this file instead of saving a copy (the original goes to the trash)"
+        @click="save(true)"
+      >
+        Replace original
+      </button>
+      <button class="button primary" :disabled="!canSave" @click="save()">
         {{ saving ? 'Saving…' : makesCopy && !renamed ? 'Save copy' : 'Save' }}
       </button>
     </div>
@@ -898,18 +912,18 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 }
 
 /* ── Buttons ── */
+/* Reset, Cancel, Replace original, Save copy: four columns of the same width;
+   a label that doesn't fit wraps, and the row's buttons stay the same height */
 .actions {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.5rem;
 }
 
-.spacer {
-  flex: 1;
-}
-
 .button {
-  padding: 0.55rem 1.1rem;
+  /* less on the sides than before: the widths are set by the columns */
+  padding: 0.55rem 0.5rem;
+  text-align: center;
   border: 1px solid var(--edge);
   border-radius: 0.6rem;
   background: #1f1f1f;
@@ -936,5 +950,17 @@ onUnmounted(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 .button.primary:hover:not(:disabled) {
   background: #3b7bf0;
+}
+
+/* "Replace original": the original goes to the trash, so the red of the
+   other destructive buttons (CompressDialog's "Stop all") */
+.button.replace {
+  color: #f07060;
+  border-color: rgba(231, 76, 60, 0.35);
+}
+
+.button.replace:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.14);
+  color: #ff8a7a;
 }
 </style>

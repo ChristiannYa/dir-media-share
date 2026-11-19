@@ -49,6 +49,13 @@ export interface Entry {
    */
   compressed_new: boolean
   /**
+   * Files only, with compressed_new: what was done to it, for its badges
+   * ("Edited!", "Compressed!"); null if not known (an older one: the client
+   * tells from its name). Needed for a file that replaced its original, which
+   * has the original's name
+   */
+  new_kind: { edited: boolean; compressed: boolean } | null
+  /**
    * Folders only: compressed copies not opened yet directly inside it (not in
    * its subfolders: the count is on the folder that holds them)
    */

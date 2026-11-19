@@ -12,11 +12,13 @@ import { popupsGone } from '@/composables/usePopupOpen'
 import { RELOAD_GALLERY_KEY, SELECTION_KEY } from '@/composables/useGallery'
 import {
   COMPRESS_LABEL,
+  COMPRESS_REPLACE_LABEL,
   EDIT_LABEL,
   EDIT_METADATA_LABEL,
   FIX_TS_LABEL,
   MOVE_LABEL,
   RENAME_LABEL,
+  REPLACE_CONFIRM,
   TRASH_CONFIRM,
   TRASH_LABEL,
 } from '@/constants'
@@ -28,6 +30,7 @@ import {
   ICON_FOLDER_MOVE,
   ICON_METADATA,
   ICON_RENAME,
+  ICON_REPLACE,
   ICON_SELECT,
   ICON_TRASH,
 } from '@/icons'
@@ -76,7 +79,7 @@ function fixBusyLabel(): string {
 // The menu's buttons are icons only (CardMenu's icon-only): each label is
 // its tooltip and screen-reader name. In rows:
 //  1. Fix TS (only for a .ts that needs it)
-//  2. download, compress, select
+//  2. download, compress, compress & replace, select
 //  3. move, trash
 //  4. edit (rename for files that can't be edited), edit metadata (photos and
 //     videos: views, time watched)
@@ -179,6 +182,34 @@ const compressItem = computed<MenuItem>(() => ({
 }))
 
 /**
+ * Like Compress, but the compressed file takes the original's place, with its
+ * name, heart and views, instead of being saved beside it (the original goes
+ * to the trash), once the queue is done. Asks first. Nothing is replaced if it
+ * wouldn't get smaller
+ */
+const compressReplaceItem = computed<MenuItem>(() => ({
+  label: COMPRESS_REPLACE_LABEL,
+  icon: ICON_REPLACE,
+  row: 'tools',
+  disabled: compressQueued.value,
+  disabledReason: 'Already in the compress queue',
+  confirm: {
+    message: REPLACE_CONFIRM.replace('{name}', props.entry.name),
+    confirmLabel: 'Compress & replace',
+  },
+  async run() {
+    pulseCompress()
+    queueCompress([props.entry], true).then(
+      ({ refused }) => {
+        if (refused[0]) alert(`${props.entry.name}: ${refused[0].error}`)
+      },
+      (e: unknown) => alert(e instanceof Error ? e.message : 'Compressing failed'),
+    )
+    return null
+  },
+}))
+
+/**
  * Selection mode (App.vue): closes the menu and turns it on with this file
  * already picked, to pick more and move or delete them together. Not shown
  * while it's already on
@@ -228,7 +259,7 @@ const isMedia = props.entry.kind === 'image' || props.entry.kind === 'video'
 const menuItems = computed<MenuItem[]>(() => [
   ...(props.entry.needs_fix ? [fixItem] : []),
   ...(isMedia ? [downloadItem] : []),
-  ...(isCompressible(props.entry) ? [compressItem.value] : []),
+  ...(isCompressible(props.entry) ? [compressItem.value, compressReplaceItem.value] : []),
   ...(selection && !selection.active.value ? [selectItem] : []),
   moveItem,
   trashItem,

@@ -28,8 +28,9 @@ export const listCompressJobs: Handler = async (_req, res) => {
 }
 
 /**
- * POST /api/compress/queue with a JSON body `{ files: [{ path, duration? }] }`:
- * adds them to the queue, which compresses them in the background. Answers
+ * POST /api/compress/queue with a JSON body `{ files: [{ path, duration?, replace? }] }`:
+ * adds them to the queue, which compresses them in the background (with
+ * `replace`, the compressed file takes the original's place). Answers
  * `{ queued, refused }`: the new jobs, and the files refused with why.
  */
 export const queueCompress: Handler = async (req, res) => {
@@ -43,17 +44,22 @@ export const queueCompress: Handler = async (req, res) => {
   if (!Array.isArray(files)) return sendJson(res, { error: 'Invalid request' }, 400)
   const requests: CompressRequest[] = files
     .filter((f): f is CompressRequest => typeof (f as CompressRequest)?.path === 'string')
-    .map((f) => ({ path: f.path, duration: typeof f.duration === 'number' ? f.duration : null }))
+    .map((f) => ({
+      path: f.path,
+      duration: typeof f.duration === 'number' ? f.duration : null,
+      replace: f.replace === true,
+    }))
   sendJson(res, await enqueueCompress(requests))
 }
 
 /**
- * POST /api/compress/edit with a JSON body `{ path, edit: { start, end, x, y, w, h }, compress? }`
+ * POST /api/compress/edit with a JSON body `{ path, edit: { start, end, x, y, w, h }, compress?, replace? }`
  * (the edit dialog: the part of the video kept in seconds, the crop in
  * fractions 0–1 of the picture as shown; photos' start / end are unused):
  * adds the trimmed / cropped copy to the queue, which makes it in the
  * background as "<name>_edited.<ext>" and, with `compress: true`, compresses
- * it too, keeping only the compressed one. Answers `{ job }`.
+ * it too, keeping only the compressed one. With `replace: true`, the result
+ * takes the original's place instead. Answers `{ job }`.
  */
 export const queueEdit: Handler = async (req, res) => {
   let body: unknown
@@ -62,14 +68,15 @@ export const queueEdit: Handler = async (req, res) => {
   } catch {
     return sendJson(res, { error: 'Invalid request' }, 400)
   }
-  const { path, edit, compress } = (body ?? {}) as {
+  const { path, edit, compress, replace } = (body ?? {}) as {
     path?: unknown
     edit?: unknown
     compress?: unknown
+    replace?: unknown
   }
   if (typeof path !== 'string') return sendJson(res, { error: 'Invalid request' }, 400)
   try {
-    sendJson(res, { job: await enqueueEdit(path, edit, compress === true) })
+    sendJson(res, { job: await enqueueEdit(path, edit, compress === true, replace === true) })
   } catch (e) {
     if (e instanceof CompressError) return sendJson(res, { error: e.message }, 400)
     console.error('Queueing an edit failed:', e)

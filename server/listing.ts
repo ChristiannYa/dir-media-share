@@ -6,7 +6,7 @@ import path from 'node:path'
 import { IMAGE_EXTENSIONS, VIDEO_EXTENSIONS } from './consts/fileTypes.ts'
 import { FOLDER_PREVIEW_IMAGE_EXTENSIONS } from './consts/folderPreviews.ts'
 import { UPLOAD_PART_SUFFIX } from './consts/uploads.ts'
-import { compressedNewIn, isCompressedNew } from './compressedNew.ts'
+import { compressedNewIn, isCompressedNew, newKindOf } from './compressedNew.ts'
 import { isHiddenCopy } from './hiddenCopies.ts'
 import { favoritesIn, isFavorite } from './favorites.ts'
 import { lastViewed } from './views.ts'
@@ -145,6 +145,7 @@ async function toEntry(
     favorite: kind !== 'folder' && isFavorite(entryPath),
     favorite_count: kind === 'folder' ? favoritesIn(entryPath).length : null,
     compressed_new: kind !== 'folder' && isCompressedNew(entryPath),
+    new_kind: kind !== 'folder' ? newKindOf(entryPath) : null,
     compressed_new_count: kind === 'folder' ? compressedNewIn(entryPath) : null,
     plays: !withVideoData
       ? null

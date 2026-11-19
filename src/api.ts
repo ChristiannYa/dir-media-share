@@ -507,17 +507,20 @@ export async function fetchCompressJobs(): Promise<CompressJob[]> {
 }
 
 /**
- * Adds videos and photos to the server's compress queue. Answers the new jobs,
- * and the files refused with why (already queued, not a video or photo…)
+ * Adds videos and photos to the server's compress queue (with `replace`, each
+ * compressed file takes its original's place; the original goes to the
+ * trash). Answers the new jobs, and the files refused with why (already
+ * queued, not a video or photo…)
  */
 export async function queueCompress(
   entries: Entry[],
+  replace = false,
 ): Promise<{ queued: CompressJob[]; refused: Array<{ path: string; error: string }> }> {
   const res = await fetch(API.compressQueue, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      files: entries.map((e) => ({ path: e.path, duration: e.duration ?? null })),
+      files: entries.map((e) => ({ path: e.path, duration: e.duration ?? null, replace })),
     }),
   })
   const data = (await res.json().catch(() => ({}))) as {
@@ -546,17 +549,20 @@ export interface MediaEdit {
  * Adds a trimmed / cropped copy of a video or photo to the server's compress
  * queue, which saves it next to the original as "<name>_edited.<ext>" in the
  * background (the original is kept). With `compress`, that copy is
- * compressed too, and only the compressed one is kept. Answers the new job
+ * compressed too, and only the compressed one is kept. With `replace`, the
+ * result takes the original's place (the original goes to the trash).
+ * Answers the new job
  */
 export async function queueEdit(
   path: string,
   edit: MediaEdit,
   compress = false,
+  replace = false,
 ): Promise<CompressJob> {
   const res = await fetch(API.compressEdit, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, edit, compress }),
+    body: JSON.stringify({ path, edit, compress, replace }),
   })
   const data = (await res.json().catch(() => ({}))) as { job?: CompressJob; error?: string }
   if (!res.ok || !data.job) throw new Error(data.error ?? `Saving the copy failed (${res.status})`)

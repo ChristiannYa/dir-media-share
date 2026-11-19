@@ -377,6 +377,14 @@ export const UPLOAD_ACCEPT = 'image/*,video/*,.heic,.mkv,.mp3'
 export const UPLOAD_CONCURRENCY = 3
 /** File menu item and selection bar button that save compressed copies of videos and photos */
 export const COMPRESS_LABEL = 'Compress'
+/** File menu item that compresses a video / photo and puts the result in its place (no copy) */
+export const COMPRESS_REPLACE_LABEL = 'Compress & replace'
+/**
+ * Asked before a compression or an edit replaces the original ({name}: the
+ * file's name). The original goes to the desktop's trash, so it can be restored
+ */
+export const REPLACE_CONFIRM =
+  'Replace "{name}" with the result once it is done? The original goes to the trash (it can be restored from there).'
 
 /**
  * What a badge is, for the stack at a card's top-left corner (StackBadge.vue):

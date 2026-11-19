@@ -195,9 +195,15 @@ const compressedOriginal = computed(() =>
  * ones; an edited copy compressed too wears both. (Not an edited one by name
  * without the compression's tag: that one was never compressed.)
  */
-const showEditedBadge = computed(() => isEditedCopy(props.entry))
+// what the server says was done to it (new_kind: needed for a file that
+// replaced its original, which has the original's name); older ones, from the name
+const showEditedBadge = computed(
+  () => props.entry.new_kind?.edited ?? isEditedCopy(props.entry),
+)
 const showCompressedBadge = computed(
-  () => !isEditedCopy(props.entry) || isCompressedCopy(props.entry),
+  () =>
+    props.entry.new_kind?.compressed ??
+    (!isEditedCopy(props.entry) || isCompressedCopy(props.entry)),
 )
 
 /** An "Edited!" / "Compressed!" icon badge was tapped: goes to the original's card (its folder opens first if needed) */

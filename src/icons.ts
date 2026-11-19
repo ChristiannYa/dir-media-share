@@ -21,6 +21,10 @@ export const ICON_FOLDER_MOVE =
 export const ICON_COMPRESS =
   'M8 19h3v3h2v-3h3l-4-4-4 4zm8-15h-3V1h-2v3H8l4 4 4-4zM4 9v2h16V9H4zm0 3h16v2H4z'
 
+/** Two arrows swapping places: compress and put the result in place of the original */
+export const ICON_REPLACE =
+  'M6.99 11 3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z'
+
 /** Eye: how many times a video / photo was played or shown (views) */
 export const ICON_EYE =
   'M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'

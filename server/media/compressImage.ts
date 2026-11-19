@@ -120,7 +120,7 @@ export function compressImage(file: string, hooks: CompressHooks): Promise<Compr
   return onImageLine(hooks, () => compressNow(file, hooks))
 }
 
-async function compressNow(file: string, { signal }: CompressHooks): Promise<CompressResult> {
+async function compressNow(file: string, { signal, hold }: CompressHooks): Promise<CompressResult> {
   const original = await stat(file)
   const skip = (note: string): CompressResult => ({
     before: original.size,
@@ -207,10 +207,11 @@ async function compressNow(file: string, { signal }: CompressHooks): Promise<Com
       )
     }
 
-    const saved = await claimName(tmp, dir, copyName(file, tag))
+    const saved = await claimName(tmp, dir, copyName(file, tag), hold)
     // stopped while it was being named: remove it again
     if (signal.aborted) {
       await unlink(saved).catch(() => {})
+      hold?.(path.basename(saved), false)
       throw new CompressError('Cancelled')
     }
     rememberCopy(saved)
